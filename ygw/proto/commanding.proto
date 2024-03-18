@@ -1,0 +1,11 @@
+
+syntax="proto2";
+
+package yamcs.protobuf.commanding;
+
+message CommandId {
+  required int64 generationTime = 1;
+  required string origin = 2;
+  required int32 sequenceNumber = 3; //unique in relation to generationTime and origin
+  optional string commandName = 4;
+}

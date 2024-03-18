@@ -1,0 +1,35 @@
+
+syntax="proto2";
+
+package yamcs.protobuf.pvalue;
+
+
+enum MonitoringResult {
+    DISABLED = 0;
+    IN_LIMITS = 1;
+    WATCH = 7;
+    WARNING = 10;
+    DISTRESS = 13;
+    CRITICAL = 16;
+    SEVERE = 19;
+}
+
+enum RangeCondition {
+    LOW = 0;
+    HIGH = 1;
+}
+
+//this can also be called validity status
+enum AcquisitionStatus {
+    // OK!
+    ACQUIRED = 0;
+  
+    // No value received so far
+    NOT_RECEIVED = 1;
+  
+    // Some value has been received but is invalid
+    INVALID = 2;
+  
+    // The parameter is coming from a packet which has not since updated although it should have been
+   EXPIRED = 3;
+}

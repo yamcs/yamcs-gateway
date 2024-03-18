@@ -1,0 +1,8 @@
+syntax="proto2";
+
+package yamcs.protobuf;
+
+message NamedObjectId {
+  required string name = 1;
+  optional string namespace = 2;
+}
