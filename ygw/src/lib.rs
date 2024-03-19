@@ -2,13 +2,14 @@ pub mod msg;
 pub mod ygw_server;
 
 pub mod tc_udp;
-//pub mod tm_udp;
+pub mod tm_udp;
 
 pub mod utc_converter;
 use msg::YgwMessage;
 use thiserror::Error;
 use tokio::sync::mpsc::{Receiver, Sender};
 use async_trait::async_trait;
+use yamcs::protobuf;
 
 pub mod yamcs {
     use core::f32;
@@ -58,7 +59,7 @@ pub trait YgwNode:Send {
     /// method called by the ygw server to run the node
     /// tx and rx are used to communicate between the node and the server
     /// the node_id is the id allocated to this node, it has to be used for all the messages sent to the server
-    async fn run(&mut self, node_id: u32, tx: Sender<YgwMessage>, rx: Receiver<YgwMessage>);
+    async fn run(&mut self, node_id: u32, tx: Sender<YgwMessage>, mut rx: Receiver<YgwMessage>);
 }
 
 /// properties for a link or node
@@ -78,7 +79,18 @@ pub struct YgwLinkNodeProperties {
 #[derive(Clone, Debug)]
 pub struct Link {
     id: u32,
-    properties: YgwLinkNodeProperties,
+    props: YgwLinkNodeProperties,
+}
+impl Link {
+    fn to_proto(&self) -> protobuf::ygw::Link {
+        protobuf::ygw::Link {
+            id: self.id,
+            name: self.props.name.clone(),
+            description: Some(self.props.description.clone()),
+            tm: if self.props.tm {Some(true)} else {None},
+            tc: if self.props.tc {Some(true)} else {None},
+        }
+    }
 }
 
 pub type Result<T> = std::result::Result<T, YgwError>;

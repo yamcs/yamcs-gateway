@@ -4,7 +4,10 @@ use bytes::{Buf, BufMut, Bytes, BytesMut};
 use prost::Message;
 
 use crate::{
-    yamcs::protobuf::{self, ygw::MessageType},
+    yamcs::protobuf::{
+        self,
+        ygw::MessageType,
+    },
     Result, YgwError,
 };
 
@@ -34,7 +37,9 @@ pub enum YgwMessage {
     TmPacket(Addr, TmPacket),
     TcPacket(Addr, protobuf::ygw::PreparedCommand),
     Event(Addr, protobuf::ygw::Event),
-    Parameters(Addr, protobuf::ygw::ParameterData),    
+    Parameters(Addr, protobuf::ygw::ParameterData),
+    LinkStatus(Addr, protobuf::ygw::LinkStatus),
+    LinkCommand(Addr, protobuf::ygw::LinkCommand),
 }
 
 #[derive(Debug, PartialEq)]
@@ -47,15 +52,6 @@ impl YgwMessage {
     /// encode a message to a BytesMut
     /// the first 4 bytes will be the data length
     pub(crate) fn encode(&self) -> BytesMut {
-        fn buf_with_header(data_len: usize, msg_type: MessageType, addr: Addr) -> BytesMut {
-            let mut buf = BytesMut::with_capacity(10 + data_len);
-            buf.put_u32((data_len + 10) as u32);
-            buf.put_u8(VERSION);
-            buf.put_u8(msg_type as u8);
-            buf.put_u32(addr.node_id);
-            buf.put_u32(addr.link_id);
-            buf
-        }
         match self {
             YgwMessage::TmPacket(addr, tm) => {
                 let mut buf = buf_with_header(tm.data.len() + 12, MessageType::Tm, *addr);
@@ -64,25 +60,21 @@ impl YgwMessage {
                 buf
             }
             YgwMessage::TcPacket(addr, pc) => {
-                let mut buf = buf_with_header(pc.encoded_len(), MessageType::Tc, *addr);
-                pc.encode_raw(&mut buf);
-                buf
+                encode_message(addr, MessageType::Tc, pc)
             }
-            YgwMessage::Event(addr, e) => {
-                let mut buf = buf_with_header(e.encoded_len(), MessageType::Event, *addr);
-                e.encode_raw(&mut buf);
-                buf
+            YgwMessage::Event(addr, ev) => {
+                encode_message(addr, MessageType::Event, ev)
             }
-            YgwMessage::Parameters(addr, pd) => {
-                let mut buf = buf_with_header(pd.encoded_len(), MessageType::ParameterData, *addr);
-                pd.encode_raw(&mut buf);
-                buf
+            YgwMessage::Parameters(addr, pdata) => {
+                encode_message(addr, MessageType::ParameterData, pdata)
             }
             YgwMessage::ParameterDefs(addr, pdefs) => {
-                let mut buf = buf_with_header(pdefs.encoded_len(), MessageType::ParameterData, *addr);
-                pdefs.encode_raw(&mut buf);
-                buf
+                encode_message(addr, MessageType::ParameterDefinitions, pdefs)
             }
+            YgwMessage::LinkStatus(addr, link_status) => {
+                encode_message(addr, MessageType::LinkStatus, link_status)
+            }
+
             _ => unreachable!("Cannot encode message {:?}", self),
         }
     }
@@ -90,9 +82,9 @@ impl YgwMessage {
     /// decode a message from Bytes
     /// the data should start directly with the version (no data length)
     pub(crate) fn decode(buf: &mut Bytes) -> Result<Self> {
-        if buf.len() < 6 {
+        if buf.len() < 10 {
             return Err(YgwError::DecodeError(format!(
-                "Message too short: {} bytes(expected at least 6 bytes)",
+                "Message too short: {} bytes(expected at least 10 bytes)",
                 buf.len()
             )));
         }
@@ -104,10 +96,10 @@ impl YgwMessage {
             )));
         }
         let msg_type = buf.get_u8();
-        let target_id = buf.get_u32();
+        let node_id = buf.get_u32();
         let link_id = buf.get_u32();
         let addr = Addr {
-            node_id: target_id,
+            node_id,
             link_id,
         };
 
@@ -118,6 +110,10 @@ impl YgwMessage {
             },
             Ok(MessageType::ParameterData) => match protobuf::ygw::ParameterData::decode(buf) {
                 Ok(param_data) => Ok(YgwMessage::Parameters(addr, param_data)),
+                Err(e) => Err(YgwError::DecodeError(e.to_string())),
+            },
+            Ok(MessageType::LinkCommand) => match protobuf::ygw::LinkCommand::decode(buf) {
+                Ok(link_cmd) => Ok(YgwMessage::LinkCommand(addr, link_cmd)),
                 Err(e) => Err(YgwError::DecodeError(e.to_string())),
             },
 
@@ -139,8 +135,21 @@ impl YgwMessage {
     }
 }
 
+
+
+pub(crate) fn encode_message<T: prost::Message>(
+    addr: &Addr,
+    msg_type: MessageType,
+    msg: &T,
+) -> BytesMut {
+    let mut buf = buf_with_header(msg.encoded_len(), msg_type, *addr);
+    msg.encode_raw(&mut buf);
+    buf
+}
+
 pub(crate) fn encode_node_info(node_list: &protobuf::ygw::NodeList) -> BytesMut {
-    let len = 6 + node_list.encoded_len();
+    //message length without the length itself
+    let len = 2 + node_list.encoded_len();
     let mut buf = BytesMut::with_capacity(len);
 
     buf.put_u32(len as u32);
@@ -163,6 +172,17 @@ fn encode_time(buf: &mut BytesMut, time: SystemTime) {
     buf.put_u32(nanos);
 }
 
+fn buf_with_header(data_len: usize, msg_type: MessageType, addr: Addr) -> BytesMut {
+     //message length without the length itself
+    let len = 10 + data_len;
+    let mut buf = BytesMut::with_capacity(len);
+    buf.put_u32(len as u32);
+    buf.put_u8(VERSION);
+    buf.put_u8(msg_type as u8);
+    buf.put_u32(addr.node_id);
+    buf.put_u32(addr.link_id);
+    buf
+}
 impl TryFrom<u8> for MessageType {
     type Error = ();
 
@@ -172,7 +192,9 @@ impl TryFrom<u8> for MessageType {
             x if x == MessageType::Tc as u8 => Ok(MessageType::Tc),
             x if x == MessageType::Event as u8 => Ok(MessageType::Event),
             x if x == MessageType::ParameterData as u8 => Ok(MessageType::ParameterData),
-            x if x == MessageType::ParameterDefinitions as u8 => Ok(MessageType::ParameterDefinitions),
+            x if x == MessageType::ParameterDefinitions as u8 => {
+                Ok(MessageType::ParameterDefinitions)
+            }
             _ => Err(()),
         }
     }

@@ -17,23 +17,39 @@ This crate (yamcs-if) contains the code for communication with Yamcs and several
 The create does not contain an executable. Each project should setup a separate binary executable crate combining the components from this crate possibly with its own components.
 
 
-**Target implementation and usage**
-To create a target, each implementation will generally provide a method
+**Node implementation and usage**
+To create a node, each implementation will have to implement the YgwNode trait
 
 ```rust
-async fn new(target_id, config) -> Result<Target> {
+#[async_trait]
+pub trait YgwNode:Send {
+    /// the properties of the node (name, description,...) - will be communicated to Yamcs
+    fn properties(&self) -> &YgwLinkNodeProperties;
 
+    /// the list of sub links - will also be communicated to Yamcs
+    fn sub_links(&self) -> &[Link];
+
+    /// method called by the ygw server to run the node
+    /// tx and rx are used to communicate between the node and the server
+    /// the node_id is the id allocated to this node, it has to be used for all the messages sent to the server
+    async fn run(&mut self, node_id: u32, tx: Sender<YgwMessage>, rx: Receiver<YgwMessage>);
 }
 ``` 
 
-The method will implement initialization relevant for the specific target. It may return an error for example if failing to open a hardware device, a network connection, etc.
+Once the nodes have been implemented, the main program will look something like:
+```rust
+  fn async main() {
+    let addr = ([127, 0, 0, 1], 56789).into();
+    let node1 = ...
+    let node2 = ...
+    let server = ServerBuilder::new(addr)
+        .add_node(Box::new(node1))
+        .add_node(Box::new(node2))
+        .build();
+    let server_handle = server.start().await.unwrap();
 
-The returned target contains the following fields:
-* target_id - this is the id of the target used in all internal messages
-* name -  a friendly but short name for the target. Yamcs uses it to construct the name of the links to/from the target.
-* description - a more elaborate description of the target. In the future it may show in the Yamcs web-ui somewhere - TBD.
-* tx: Sender<YgwMessage> - used by the Yamcs to send TC/Parameters and control messages to the target. First control message is TargetInit(Sender<YgwMessage>). This contains the channel to be used by the target to send data (TM, event, parameters) back to Yamcs.
-* TODO: configuration information to know if the target supports TM, TC, Parameters, etc
+    server_handle.join();
+  }
+```
 
-The code that implements the target has to wait for the first TargetInit message to start operations.
-
+In Yamcs, each node appears as a link with possible sub-links. The link up/down commands and events are propagated from Yamcs to the node as messages.

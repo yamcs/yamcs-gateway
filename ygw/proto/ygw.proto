@@ -20,7 +20,9 @@ enum MessageType {
   TM = 4;
   TC = 5;
   EVENT = 6;
-  PARAMETER_DATA = 7;  
+  PARAMETER_DATA = 7;
+  LINK_COMMAND = 8;
+  LINK_STATUS = 9;
 }
 
 message Timestamp {
@@ -99,9 +101,11 @@ message ParameterData {
     // parameters in "rows" and also by components that provide parameters
     // from external sources. The time should roughly correspond to the parameter 
     // time but can be rounded for better efficiency.
-    optional string group = 2;
+    required string group = 2;
+    required uint32 seqNum = 4;
+
     optional Timestamp  generationTime = 3;
-    optional uint32 seqNum = 4;
+  
 }
 
 message CommandAssignment {
@@ -149,8 +153,9 @@ message NodeList {
 message Link {
     required uint32 id = 1;
     required string name = 2;
-    optional bool tm = 3;
-    optional bool tc = 4;
+    optional string description = 3;
+    optional bool tm = 4;
+    optional bool tc = 5;
 }
 
 message Node {
@@ -160,16 +165,36 @@ message Node {
     optional bool tm = 4;
     optional bool tc = 5;
     repeated Link links = 6;
-    repeated ParameterDefinition parameters = 7;
 }
 
 message ParameterDefinition {
     required string fqn = 1;
     optional string description = 2;
     optional string unit = 3;
-    optional string type = 4;
+    // type can be a fully qualified name of a type known inside Yamcs
+    // or a basic value type sint32, uint32, etc in case it is a simple engineering only value
+    required string type = 4;
+    optional bool writable = 5;
 }
 
 message ParameterDefinitionList {
     repeated ParameterDefinition definitions = 1;
+}
+enum LinkState {
+    OK = 1;
+    UNAVAIL = 2;
+    DISABLED = 3;
+    FAILED = 4;
+}
+
+message LinkStatus {
+    required LinkState state = 2;
+    required uint64 dataInCount = 3;
+    required uint64 dataOutCount = 4;
+}
+
+message LinkCommand {
+    required uint32 link_id = 1;
+    required string command = 2;
+    optional string args = 3;
 }
