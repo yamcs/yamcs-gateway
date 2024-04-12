@@ -8,10 +8,8 @@ package yamcs.protobuf.ygw;
 
 option java_package = "org.yamcs.ygw.protobuf";
 
-import "yamcs.proto";
 import "pvalue.proto";
-import "commanding.proto";
-import "events.proto";
+
 
 enum MessageType {
   NODE_INFO = 1;
@@ -122,12 +120,27 @@ message CommandId {
 }
 
 message PreparedCommand {
-   required yamcs.protobuf.commanding.CommandId commandId = 1;
+   required CommandId commandId = 1;
    repeated CommandAssignment assignments = 2;
    map<string, Value> extra = 3;
    optional bytes binary = 4;
 }
 
+enum EventSeverity {
+    INFO = 0;
+    WARNING = 1;
+    ERROR = 2;
+
+    //the levels below are compatible with XTCE
+    // we left the 4 out since it could be used 
+    // for warning if we ever decide to get rid of the old ones
+
+    WATCH = 3;
+    DISTRESS = 5;
+    CRITICAL = 6;
+    SEVERE = 7;
+}
+  
 message Event {
     optional string source = 1;
     optional int64 generationTime = 2;
@@ -135,7 +148,7 @@ message Event {
     optional int32 seqNumber = 4;
     optional string type = 5;
     required string message = 6;
-    optional yamcs.protobuf.events.Event.EventSeverity severity = 7[default=INFO];
+    optional EventSeverity severity = 7[default=INFO];
   
     // Set by API when event was posted by a user
     optional string createdBy = 10;
@@ -188,9 +201,11 @@ enum LinkState {
 }
 
 message LinkStatus {
-    required LinkState state = 2;
-    required uint64 dataInCount = 3;
-    required uint64 dataOutCount = 4;
+    required LinkState state = 1;
+    required uint64 dataInCount = 2;
+    required uint64 dataOutCount = 3;
+    required uint64 dataInSize = 4;
+    required uint64 dataOutSize = 5;
 }
 
 message LinkCommand {
