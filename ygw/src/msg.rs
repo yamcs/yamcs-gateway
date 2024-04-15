@@ -4,7 +4,7 @@ use bytes::{Buf, BufMut, Bytes, BytesMut};
 use prost::Message;
 
 use crate::{
-    yamcs::protobuf::{
+    protobuf::{
         self,
         ygw::MessageType,
     },

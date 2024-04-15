@@ -1,3 +1,3 @@
 [workspace]
 resolver = "2"
-members = [ "ygw", "quickstart"]
+members = [ "ygw", "ygw-macros", "quickstart"]

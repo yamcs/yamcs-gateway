@@ -5,8 +5,8 @@ edition = "2021"
 
 [dependencies]
 bytes = "1"
-prost = "0.11"
-prost-types = "0.11"
+prost = "0.12.4"
+prost-types = "0.12.4"
 byteorder= "1"
 thiserror = "1"
 env_logger = "0.11"
@@ -19,4 +19,4 @@ async-trait = "0.1.78"
 futures = "0.3.30"
 
 [build-dependencies]
-prost-build = { version = "0.11" }
+prost-build = { version = "0.12.4" }

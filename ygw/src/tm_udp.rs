@@ -17,8 +17,7 @@ use tokio::time as tokio_time;
 
 use crate::{
     msg::{Addr, TmPacket, YgwMessage},
-    yamcs::protobuf,
-    Result, YgwLinkNodeProperties, YgwNode,
+    LinkStatus, Result, YgwError, YgwLinkNodeProperties, YgwNode,
 };
 const MAX_DATAGRAM_LEN: usize = 2000;
 
@@ -38,30 +37,27 @@ impl YgwNode for TmUdpNode {
         &[]
     }
 
-    async fn run(&mut self, node_id: u32, tx: Sender<YgwMessage>, mut _rx: Receiver<YgwMessage>) {
+    async fn run(
+        &mut self,
+        node_id: u32,
+        tx: Sender<YgwMessage>,
+        mut _rx: Receiver<YgwMessage>,
+    ) -> Result<()> {
         let mut buf = [0; MAX_DATAGRAM_LEN];
         let ibs = self.initial_bytes_to_strip;
 
-        let mut link_status = protobuf::ygw::LinkStatus {
-            data_in_count: 0,
-            data_out_count: 0,
-            data_in_size: 0,
-            data_out_size: 0,
-            state: protobuf::ygw::LinkState::Ok as i32,
-        };
-
         let addr = Addr::new(node_id, 0);
+        let mut link_status = LinkStatus::new(addr);
+
         let mut interval = tokio_time::interval(time::Duration::from_secs(1));
         interval.set_missed_tick_behavior(tokio_time::MissedTickBehavior::Skip);
 
         loop {
             tokio::select! {
                 len = self.socket.recv(&mut buf) => {
-                    println!("got packet of size {:?}", len);
                     match len {
                         Ok(len) => {
-                            link_status.data_in_count +=1;
-                            link_status.data_in_size+=len as u64;
+                            link_status.data_in(1, len as u64);
                             log::trace!("Got packet of size {len}");
 
                             let pkt = TmPacket {
@@ -69,20 +65,18 @@ impl YgwNode for TmUdpNode {
                                 acq_time: SystemTime::now(),
                             };
                             if let Err(_) = tx.send(YgwMessage::TmPacket(addr, pkt)).await {
-                                break;
+                                return Err(YgwError::ServerShutdown);
                             }
                         },
                         Err(err) => {
                             log::warn!("Error receiving data from UDP socket: {:?}", err);
-                            break;
+                            return Err(YgwError::IOError(err));
                         }
                     }
 
                 }
                 _ = interval.tick() => {
-                    if let Err(_) = tx.send(YgwMessage::LinkStatus(addr, link_status.clone())).await {
-                        break;
-                    }
+                    link_status.send(&tx).await?
                 }
             }
         }
@@ -97,7 +91,7 @@ impl TmUdpNode {
         initial_bytes_to_strip: usize,
     ) -> Result<Self> {
         let socket = UdpSocket::bind(addr).await?;
-        
+
         Ok(Self {
             socket,
             initial_bytes_to_strip,

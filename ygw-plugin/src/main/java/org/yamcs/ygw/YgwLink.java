@@ -8,25 +8,27 @@ import java.util.Map;
 import java.util.concurrent.CompletableFuture;
 import java.util.concurrent.TimeUnit;
 
+import org.yamcs.ConfigurationException;
+import org.yamcs.Processor;
 import org.yamcs.Spec;
 import org.yamcs.YConfiguration;
 import org.yamcs.YamcsServer;
+import org.yamcs.YamcsServerInstance;
 import org.yamcs.Spec.OptionType;
 
 import org.yamcs.events.EventProducerFactory;
+import org.yamcs.http.api.InstancesApi;
 import org.yamcs.logging.Log;
-import org.yamcs.mdb.Mdb;
-import org.yamcs.mdb.MdbFactory;
+import org.yamcs.parameter.SoftwareParameterManager;
 import org.yamcs.tctm.AbstractLink;
 import org.yamcs.tctm.AggregatedDataLink;
 import org.yamcs.tctm.Link;
-import org.yamcs.xtce.Parameter;
+import org.yamcs.xtce.DataSource;
 import org.yamcs.ygw.protobuf.Ygw.Event;
 import org.yamcs.ygw.protobuf.Ygw.LinkStatus;
 import org.yamcs.ygw.protobuf.Ygw.MessageType;
 import org.yamcs.ygw.protobuf.Ygw.NodeList;
 import org.yamcs.ygw.protobuf.Ygw.ParameterData;
-import org.yamcs.ygw.protobuf.Ygw.ParameterDefinition;
 import org.yamcs.ygw.protobuf.Ygw.ParameterDefinitionList;
 
 import io.netty.bootstrap.Bootstrap;
@@ -46,16 +48,18 @@ import us.hebi.quickbuf.InvalidProtocolBufferException;
 public class YgwLink extends AbstractLink implements AggregatedDataLink {
     final static int MAX_PACKET_LENGTH = 0xFFFF;
     public static final byte VERSION = 0;
+    DataSource dataSource;
 
     String host;
     int port;
     long reconnectionDelay;
-
+    String mdbPath;
 
     List<Link> sublinks = new ArrayList<>();
     Map<Integer, YgwNodeLink> nodes = new HashMap<>();
 
     YfeChannelHandler handler;
+    YgwParameterManager paramMgr;
 
     @Override
     public void init(String instance, String name, YConfiguration config) {
@@ -63,11 +67,33 @@ public class YgwLink extends AbstractLink implements AggregatedDataLink {
         this.host = config.getString("host");
         this.port = config.getInt("port");
         this.reconnectionDelay = config.getLong("reconnectionDelay");
+        this.mdbPath = config.getString("mdbPath");
 
         log = new Log(getClass(), instance);
         log.setContext(name);
         eventProducer = EventProducerFactory.getEventProducer(instance, name, 10000);
         timeService = YamcsServer.getTimeService(instance);
+        String procName = config.getString("processor");
+        this.dataSource = config.getEnum("dataSource", DataSource.class);
+
+        YamcsServerInstance ysi = InstancesApi.verifyInstanceObj(instance);
+        Processor processor = ysi.getProcessor(procName);
+        if (processor == null) {
+            throw new ConfigurationException("No processor '" + procName + "' within instance '" + instance + "'");
+        }
+        var ppm =  processor.getParameterProcessorManager();
+        SoftwareParameterManager mgr = ppm.getSoftwareParameterManager(dataSource);
+
+        if (mgr == null) {
+            paramMgr = new YgwParameterManager(instance, dataSource);
+            
+        } else if (mgr instanceof YgwParameterManager) {
+            this.paramMgr = (YgwParameterManager) mgr;
+            ppm.addSoftwareParameterManager(dataSource, paramMgr);
+        } else {
+            throw new ConfigurationException(
+                    "A software parameter manager already registered for the source " + dataSource);
+        }
     }
 
     @Override
@@ -84,7 +110,16 @@ public class YgwLink extends AbstractLink implements AggregatedDataLink {
                         + "the time (in milliseconds) to wait before reconnection.");
 
         spec.addOption("mdbPath", OptionType.STRING).withDefault("/ygw")
-                .withDescription("Name of the subystem where the commands and parameter for this link are");
+                .withDescription("Name of the subystem where the commands and parameters "
+                        + "for the gateway connected to this link are created");
+
+        spec.addOption("dataSource", OptionType.STRING).withDefault("EXTERNAL2")
+                .withChoices("EXTERNAL1", "EXTERNAL2", "EXTERNAL3")
+                .withDescription("The DataSource to use for the parameters registered by the gateway nodes");
+
+        spec.addOption("processor", OptionType.STRING).withDefault("realtime")
+                .withDescription("The processor providing parameter updates. "
+                        + "A SoftwareParameter manager for the configured data source will be registered in this processor");
 
         return spec;
 
@@ -373,19 +408,7 @@ public class YgwLink extends AbstractLink implements AggregatedDataLink {
                 log.warn("Failed to decode parameter definition", e);
                 return;
             }
-            Mdb mdb = MdbFactory.getInstance(yamcsInstance);
-
-            List<Parameter> params = new ArrayList<>();
-            log.debug("Got parameter definitions: {}", pdefs);
-            for (ParameterDefinition pdef : pdefs.getDefinitions()) {
-                // Parameter p = new Parameter(pdef.)
-                // pdef.getRelativeName()
-            }
-            try {
-                mdb.addParameters(null, true, true);
-            } catch (IOException e) {
-                log.error("Got error adding parameters to the MDB", e);
-            }
+            paramMgr.addParameterDefs(mdbPath, pdefs);
         }
 
         public boolean isConnected() {

@@ -46,7 +46,6 @@ message ArrayValue {
 }
 
 // Union type for storing a value
-// this message should hopefully one day replace the one in the yamcs-api as it is cleaner
 message Value {
     oneof v {
         float floatValue = 2;
@@ -66,11 +65,9 @@ message Value {
 }
 
 message ParameterValue {
-    // Parameter identifier
-    optional string fqn = 1;
-
-    // can be used instead of the id above in certain contexts
-    optional uint32 numericId = 2;
+    // Parameter identifier.
+    // It has to match the id defined in the ParameterDefinition
+    required uint32 id = 1;
 
     // Raw value (uncalibrated)
     optional Value rawValue = 3;
@@ -93,7 +90,7 @@ message ParameterValue {
 
 
 message ParameterData {
-    repeated ParameterValue parameter = 1;
+    repeated ParameterValue parameters = 1;
 
     // The next three fields are used by the recorder as unique key to store
     // parameters in "rows" and also by components that provide parameters
@@ -102,8 +99,8 @@ message ParameterData {
     required string group = 2;
     required uint32 seqNum = 4;
 
+    // if all parameters have the same generation time, it can be skipped from the value and provided here
     optional Timestamp  generationTime = 3;
-  
 }
 
 message CommandAssignment {
@@ -181,13 +178,18 @@ message Node {
 }
 
 message ParameterDefinition {
-    required string fqn = 1;
+    // parameter name relative to the namespace defined in the Yamcs configuration
+    required string relativeName = 1;
     optional string description = 2;
     optional string unit = 3;
-    // type can be a fully qualified name of a type known inside Yamcs
+    // ptype is the type of the parameter
+    // it can be a fully qualified name of a type known inside Yamcs
     // or a basic value type sint32, uint32, etc in case it is a simple engineering only value
-    required string type = 4;
+    required string ptype = 4;
     optional bool writable = 5;
+    // numeric parameter id used when sending the values
+    // the id has to be unique for one node
+    required uint32 id = 6;
 }
 
 message ParameterDefinitionList {
@@ -206,6 +208,8 @@ message LinkStatus {
     required uint64 dataOutCount = 3;
     required uint64 dataInSize = 4;
     required uint64 dataOutSize = 5;
+    /// if there was an error this may provide more details
+    optional string err = 6;
 }
 
 message LinkCommand {

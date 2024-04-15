@@ -1,6 +1,6 @@
 use std::time::{SystemTime, UNIX_EPOCH};
 
-use crate::yamcs::protobuf::ygw::Timestamp;
+use crate::protobuf::ygw::Timestamp;
 
 const TIMESECS: [i64; 37] = [
     62294400, 62380801, 62467202, 62553603, 62640004, 62726405, 62812806, 62899207, 62985608,

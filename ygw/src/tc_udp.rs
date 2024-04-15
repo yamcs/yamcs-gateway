@@ -9,9 +9,7 @@ use tokio::{
 };
 
 use crate::{
-    msg::{Addr, YgwMessage},
-    yamcs::protobuf,
-    Result, YgwLinkNodeProperties, YgwNode,
+    msg::{Addr, YgwMessage}, LinkStatus, Result, YgwLinkNodeProperties, YgwNode
 };
 use async_trait::async_trait;
 
@@ -30,28 +28,20 @@ impl YgwNode for TcUdpNode {
         &[]
     }
 
-    async fn run(&mut self, node_id: u32, tx: Sender<YgwMessage>, mut rx: Receiver<YgwMessage>) {
-        let mut link_status = protobuf::ygw::LinkStatus {
-            data_in_count: 0,
-            data_out_count: 0,
-            data_in_size: 0,
-            data_out_size: 0,
-            state: protobuf::ygw::LinkState::Ok as i32,
-        };
+    async fn run(&mut self, node_id: u32, tx: Sender<YgwMessage>, mut rx: Receiver<YgwMessage>)  -> Result<()> {
         let addr = Addr::new(node_id, 0);
 
+        let mut link_status = LinkStatus::new(addr);
+
+       
         //send an initial link status indicating that the link is up (it is always up for a UDP)
-        if let Err(_) = tx.send(YgwMessage::LinkStatus(addr, link_status.clone())).await {
-            return;
-        }
+        link_status.send(&tx).await?;
 
         while let Some(msg) = rx.recv().await {
-            println!("got message via bla: {:?}", msg);
             match msg {
                 YgwMessage::TcPacket(_id, pc) => match pc.binary {
                     Some(ref cmd_binary) => {
-                        link_status.data_out_count += 1;
-                        link_status.data_out_size += cmd_binary.len() as u64;
+                        link_status.data_out(1, cmd_binary.len() as u64);
 
                         log::debug!("Sending command {:?}", pc);
                         if let Err(err) = self.socket.send(&cmd_binary[..]).await {
@@ -64,10 +54,9 @@ impl YgwNode for TcUdpNode {
                 _ => log::warn!("Got unexpected message {:?}", msg),
             };
 
-            if let Err(_) = tx.send(YgwMessage::LinkStatus(addr, link_status.clone())).await {
-                return;
-            }
+            link_status.send(&tx).await?;
         }
+        Ok(())
     }
 }
 

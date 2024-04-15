@@ -43,7 +43,7 @@ use tokio_util::codec::{FramedRead, LengthDelimitedCodec};
 use crate::{
     hex8,
     msg::{self, Addr, YgwMessage},
-    yamcs::protobuf::{self, ygw::MessageType},
+    protobuf::{self, ygw::MessageType},
     Link, Result, YgwError, YgwLinkNodeProperties, YgwNode,
 };
 
@@ -478,7 +478,7 @@ mod tests {
 
     use crate::{
         msg::{Addr, TmPacket},
-        yamcs::protobuf::{commanding::CommandId, ygw::PreparedCommand},
+        protobuf::{ygw::CommandId, ygw::PreparedCommand},
         Link,
     };
 
@@ -655,10 +655,11 @@ mod tests {
             &[]
         }
 
-        async fn run(&mut self, node_id: u32, tx: Sender<YgwMessage>, rx: Receiver<YgwMessage>) {
+        async fn run(&mut self, node_id: u32, tx: Sender<YgwMessage>, rx: Receiver<YgwMessage>) -> Result<()> {
             self.tx.send((node_id, tx, rx)).await.unwrap();
 
             tokio::time::sleep(std::time::Duration::from_secs(200)).await;
+            Ok(())
         }
     }
 }

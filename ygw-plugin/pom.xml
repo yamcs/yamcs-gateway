@@ -8,6 +8,15 @@
 	<version>1.0-SNAPSHOT</version>
 	<name>ygw-plugin</name>
 	<url>http://yamcs.org</url>
+	<description>
+		Plugin for connecting Yamcs to the Yamcs gateway.
+	</description>
+	<developers>
+		<developer>
+			<id>xpromache</id>
+			<name>Nicolae Mihalache</name>
+		</developer>
+	</developers>
 
 	<properties>
 		<yamcs.version>5.9.5-SNAPSHOT</yamcs.version>
