@@ -33,14 +33,18 @@ dataLinks:
     port: 7897
     tcStream: "tc_realtime"
     tmStream: "tm_realtime"
+    ppStream: "pp_realtime"
     #packetPreprocessorClassName: org.yamcs.tctm.IssPacketPreprocessor
     
 mdb:
-  # Configuration of the active loaders
   # Valid loaders are: sheet, xtce or fully qualified name of the class
   - type: xtce
     args:
-      file: mdb/xtce.xml
+      file: mdb/xtce.xml  
+  - type: xtce
+    args:
+      file: mdb/ygw.xml
+    writable: true
 
 #Configuration for streams created at server startup
 streamConfig:

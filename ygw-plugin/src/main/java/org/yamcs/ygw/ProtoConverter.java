@@ -105,6 +105,28 @@ public class ProtoConverter {
         return qav;
     }
 
+    static org.yamcs.parameter.Value fromProto(Value qv) {
+        if (qv.hasBooleanValue()) {
+            return new org.yamcs.parameter.BooleanValue(qv.getBooleanValue());
+        } else if (qv.hasDoubleValue()) {
+            return new org.yamcs.parameter.DoubleValue(qv.getDoubleValue());
+        } else if (qv.hasFloatValue()) {
+            return new org.yamcs.parameter.FloatValue(qv.getFloatValue());
+        } else if (qv.hasSint32Value()) {
+            return new org.yamcs.parameter.SInt32Value(qv.getSint32Value());
+        } else if (qv.hasSint64Value()) {
+            return new org.yamcs.parameter.SInt64Value(qv.getSint64Value());
+        } else if (qv.hasStringValue()) {
+            return new org.yamcs.parameter.StringValue(qv.getStringValue());
+        } else if (qv.hasUint32Value()) {
+            return new org.yamcs.parameter.UInt32Value(qv.getUint32Value());
+        } else if (qv.hasUint64Value()) {
+            return new org.yamcs.parameter.UInt64Value(qv.getUint64Value());
+        } else {
+            throw new IllegalStateException("TODO " + qv);
+        }
+    }
+
     static EnumeratedValue toProto(org.yamcs.parameter.EnumeratedValue ev) {
         return EnumeratedValue.newInstance().setSint64Value(ev.getSint64Value()).setStringValue(ev.getStringValue());
     }
@@ -136,5 +158,10 @@ public class ProtoConverter {
         yevb.setGenerationTime(timeService.getMissionTime());
 
         return yevb.build();
+    }
+
+    public static long fromProtoMillis(Timestamp t) {
+        // FIXME
+        return t.getMillis() + 37000;
     }
 }

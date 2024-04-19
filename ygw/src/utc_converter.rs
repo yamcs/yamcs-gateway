@@ -38,6 +38,7 @@ pub struct DateTimeComponents {
     millis: i32,
 }
 
+#[derive(Default)]
 pub struct Instant {
     millis: i64,
     picos: u32,
@@ -61,20 +62,13 @@ impl From<Instant> for Timestamp {
     }
 }
 
-impl Default for Instant {
-    fn default() -> Instant {
-        Instant {
-            millis: 0,
-            picos: 0,
-        }
-    }
-}
+
 
 pub fn get_instant(millis: i64, picos: i64) -> Instant {
     let picos1;
     let mut mil = millis;
-    if picos >= PICOS_PER_MILLIS || picos < 0 {
-        mil = mil + picos / PICOS_PER_MILLIS;
+    if !(0..PICOS_PER_MILLIS).contains(&picos) {
+        mil += picos / PICOS_PER_MILLIS;
         picos1 = picos % PICOS_PER_MILLIS;
     } else {
         picos1 = picos;
@@ -186,10 +180,10 @@ pub fn instant_to_utc(t: Instant) -> DateTimeComponents {
     let mut ls = DIFF_TAI_UTC;
 
     for i in (0..(TIMESECS.len())).rev() {
-        if u > TIMESECS[i as usize] {
+        if u > TIMESECS[i] {
             break;
         }
-        if u == TIMESECS[i as usize] {
+        if u == TIMESECS[i] {
             leap = 1;
             break;
         }
@@ -258,7 +252,7 @@ pub fn unix_to_instant(t: i64) -> Instant {
     let u = t / 1000;
     let mut ls = DIFF_TAI_UTC as i64;
     for i in (0..(TIMESECS.len())).rev() {
-        if u >= TIMESECS[i] - ls + 1 {
+        if u > TIMESECS[i] - ls {
             break;
         }
         ls -= 1;
@@ -273,14 +267,14 @@ pub fn nano_unix_to_instant(seconds: i64, subsec_nanos: u32) -> Instant {
     let u = seconds;
     let mut ls = DIFF_TAI_UTC as i64;
     for i in (0..(TIMESECS.len())).rev() {
-        if u >= TIMESECS[i] - ls + 1 {
+        if u > TIMESECS[i] - ls {
             break;
         }
         ls -= 1;
     }
-    let picos = ((subsec_nanos % 1_000_000) * 1000) as u32;
+    let picos = (subsec_nanos % 1_000_000) * 1000;
 
-    let millis = (seconds + ls) * 1000 + subsec_nanos as i64 / 1000_000;
+    let millis = (seconds + ls) * 1000 + subsec_nanos as i64 / 1_000_000;
     Instant { millis, picos }
 }
 
@@ -310,7 +304,7 @@ pub fn to_string(instant: Instant) -> String {
     sb.push('.');
     sb.push_str(&format!("{:0>3}", dtc.millis));
     sb.push('Z');
-    return sb;
+    sb
 }
 
 #[cfg(test)]

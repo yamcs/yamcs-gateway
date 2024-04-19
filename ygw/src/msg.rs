@@ -33,7 +33,7 @@ impl Addr {
 // messages exchanged on the internal channels
 #[derive(Debug, PartialEq)]
 pub enum YgwMessage {
-    ParameterDefs(Addr, protobuf::ygw::ParameterDefinitionList),
+    ParameterDefinitions(Addr, protobuf::ygw::ParameterDefinitionList),
     TmPacket(Addr, TmPacket),
     TcPacket(Addr, protobuf::ygw::PreparedCommand),
     Event(Addr, protobuf::ygw::Event),
@@ -68,7 +68,7 @@ impl YgwMessage {
             YgwMessage::Parameters(addr, pdata) => {
                 encode_message(addr, MessageType::ParameterData, pdata)
             }
-            YgwMessage::ParameterDefs(addr, pdefs) => {
+            YgwMessage::ParameterDefinitions(addr, pdefs) => {
                 encode_message(addr, MessageType::ParameterDefinitions, pdefs)
             }
             YgwMessage::LinkStatus(addr, link_status) => {

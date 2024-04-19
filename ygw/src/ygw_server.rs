@@ -62,6 +62,12 @@ pub struct ServerBuilder {
     addr: SocketAddr,
 }
 
+impl Default for ServerBuilder {
+    fn default() -> Self {
+        Self::new()
+    }
+}
+
 impl ServerBuilder {
     /// creates a new server builder
     /// the listening address is set to 127.0.0.1:7897
@@ -224,7 +230,7 @@ async fn encoder_task(
                         let buf = msg.encode().freeze();
                         send_data_to_all(&mut connections, buf).await;
                         match msg {
-                            YgwMessage::ParameterDefs(addr, pdefs) => {
+                            YgwMessage::ParameterDefinitions(addr, pdefs) => {
                                 if let Some(node) = nodes.get_mut(&addr.node_id()) {
                                     node.para_defs.definitions.extend(pdefs.definitions);
                                 }
@@ -279,13 +285,11 @@ async fn send_data_to_all(connections: &mut Vec<YamcsConnection>, buf: Bytes) {
                 connections.remove(idx);
                 continue;
             }
-        } else {
-            if let Err(_) = yc.chan_tx.send(buf1).await {
-                //channel closed, the writer quit
-                // (it hopefully printed an informative log message so no need to log anything extra here)
-                connections.remove(idx);
-                continue;
-            }
+        } else if let Err(_) = yc.chan_tx.send(buf1).await {
+            //channel closed, the writer quit
+            // (it hopefully printed an informative log message so no need to log anything extra here)
+            connections.remove(idx);
+            continue;
         }
         idx += 1;
     }
@@ -301,7 +305,7 @@ async fn send_initial_data(
     let nl = protobuf::ygw::NodeList {
         nodes: nodes
             .iter()
-            .map(|(_, &ref nd)| nd.node_to_proto())
+            .map(|(_, nd)| nd.node_to_proto())
             .collect(),
     };
     let buf = msg::encode_node_info(&nl);

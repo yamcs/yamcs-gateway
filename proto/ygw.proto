@@ -79,10 +79,11 @@ message ParameterValue {
 
     optional Timestamp generationTime = 6;
 
-    optional yamcs.protobuf.pvalue.AcquisitionStatus acquisitionStatus = 7;
+    // to add if we need them
+    //optional yamcs.protobuf.pvalue.AcquisitionStatus acquisitionStatus = 7;
     
-    optional yamcs.protobuf.pvalue.MonitoringResult monitoringResult = 8;
-    optional yamcs.protobuf.pvalue.RangeCondition rangeCondition = 9;
+    // optional yamcs.protobuf.pvalue.MonitoringResult monitoringResult = 8;
+    // optional yamcs.protobuf.pvalue.RangeCondition rangeCondition = 9;
 
     // How long (in milliseconds) this parameter value is valid
     optional int64 expireMillis = 10;

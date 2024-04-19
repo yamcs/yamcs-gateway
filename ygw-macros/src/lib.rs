@@ -3,12 +3,24 @@ extern crate proc_macro;
 use proc_macro::TokenStream;
 use quote::{format_ident, quote};
 use syn::{
-    ext, parse::Parser, parse_macro_input, spanned::Spanned, Field, ItemStruct, LitBool, LitStr,
-    Result,
+    parse::Parser, parse_macro_input, spanned::Spanned, Field, ItemStruct, LitBool, LitStr, Result,
 };
 
+/// parameter_group is a macro that can be used for structs to allow their content to be used as Yamcs parameters
+///
+/// The macro adds a `_meta` member which stores extra information about each parameter as well as a sequence count 
+/// incremented each time data is delivered to Yamcs
+/// 
+/// To create a value of the struct the meta has to be initialized using the `StructNameMeta::new()` method. This method will allocate numeric identifier for parameters which are then used to communicate the values to/from Yamcs.
+/// 
+/// In addition, several helper methods are provided:
+/// * `send_definitions` - sends the parameter definitions to Yamcs. This has to be called at the beginning, before sending any other data. 
+/// * `set_<fieldname>` - can be used to set values of the fields together with the timestamp. This method will set the modified flag of the respective field and that flag is used by the `send_modified_values` function. The fields can also be assigned directly and the send_values method can then be used to send the values to Yamcs.
+/// * `send_values` - sends all the values to Yamcs irrespective of their modified status.
+/// * `send_modified_values` - sends all the modified values to Yamcs.
+
 #[proc_macro_attribute]
-pub fn parameter_pool(_attr: TokenStream, input: TokenStream) -> TokenStream {
+pub fn parameter_group(_attr: TokenStream, input: TokenStream) -> TokenStream {
     let item_struct = parse_macro_input!(input as ItemStruct);
 
     match parameter_pool_impl(item_struct) {
@@ -46,7 +58,7 @@ fn parameter_pool_impl(mut item_struct: ItemStruct) -> Result<TokenStream> {
             param_defs.push(get_para_def(field_id, &f)?);
             param_mod_values.push(get_para_mod_value(field_id, &f)?);
             param_values.push(get_para_value(field_id, &f)?);
-            
+
             f.attrs.clear();
             field_id += 1;
         }
@@ -71,7 +83,7 @@ fn parameter_pool_impl(mut item_struct: ItemStruct) -> Result<TokenStream> {
         impl #struct_name {
             #(#setters)*
 
-            fn get_definition(&self) -> ygw::protobuf::ygw::ParameterDefinitionList {
+            fn get_definitions(&self) -> ygw::protobuf::ygw::ParameterDefinitionList {
                 let mut definitions = Vec::new();
                 #(#param_defs)*
 
@@ -101,16 +113,37 @@ fn parameter_pool_impl(mut item_struct: ItemStruct) -> Result<TokenStream> {
                     generation_time: Some(gentime)
                 }
             }
+
+            /// sends the definitions
+            pub async fn send_definitions(&mut self, tx: &Sender<YgwMessage>) -> ygw::Result<()> {
+                tx.send(ygw::msg::YgwMessage::ParameterDefinitions(self._meta.addr, self.get_definitions()))
+                   .await.map_err(|_| YgwError::ServerShutdown)
+            }
+
+            /// send the values with the current (now) timestamp
+            pub async fn send_values(&mut self, tx: &Sender<YgwMessage>) -> ygw::Result<()> {
+                 tx.send(ygw::msg::YgwMessage::Parameters(self._meta.addr, self.get_values(ygw::protobuf::now())))
+                    .await.map_err(|_| YgwError::ServerShutdown)
+            }
+
+            /// send the modified values and clear the modified flag
+            pub async fn send_modified_values(&mut self, tx: &Sender<YgwMessage>) -> ygw::Result<()> {
+                tx.send(ygw::msg::YgwMessage::Parameters(self._meta.addr, self.get_modified_values()))
+                   .await.map_err(|_| YgwError::ServerShutdown)
+           }
+
         }
         struct #meta_name {
             start_id: u32,
             seq_count: u32,
+            addr: ygw::msg::Addr,
             #(#meta_fields,)*
         }
 
         impl #meta_name {
-            fn new(gentime: ygw::protobuf::ygw::Timestamp) -> Self {
+            fn new(addr:ygw::msg::Addr, gentime: ygw::protobuf::ygw::Timestamp) -> Self {
                 Self {
+                    addr,
                     start_id: ygw::generate_pids(#num_fields),
                     seq_count: 0,
                     #(#meta_inits)*
@@ -175,12 +208,11 @@ fn get_para_def(id: u32, field: &Field) -> Result<proc_macro2::TokenStream> {
 
 fn get_para_value(id: u32, field: &Field) -> Result<proc_macro2::TokenStream> {
     let name = field.ident.as_ref().unwrap();
-    
+
     Ok(quote! {
         parameters.push(ygw::protobuf::get_pv_eng(self._meta.start_id + #id, None, self.#name));
     })
 }
-
 
 fn get_para_mod_value(id: u32, field: &Field) -> Result<proc_macro2::TokenStream> {
     let name = field.ident.as_ref().unwrap();

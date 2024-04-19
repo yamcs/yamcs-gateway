@@ -3,19 +3,21 @@ package org.yamcs.ygw;
 import static org.yamcs.cmdhistory.CommandHistoryPublisher.AcknowledgeSent_KEY;
 
 import java.util.HashMap;
+import java.util.List;
 import java.util.Map;
+import java.util.stream.Collectors;
 
 import org.yamcs.TmPacket;
 import org.yamcs.YConfiguration;
 import org.yamcs.cmdhistory.CommandHistoryPublisher.AckStatus;
 import org.yamcs.commanding.PreparedCommand;
+import org.yamcs.parameter.ParameterValue;
 import org.yamcs.tctm.AbstractTcTmParamLink;
 import org.yamcs.tctm.AggregatedDataLink;
 import org.yamcs.utils.TimeEncoding;
 import org.yamcs.ygw.protobuf.Ygw.LinkStatus;
 import org.yamcs.ygw.protobuf.Ygw.MessageType;
 import org.yamcs.ygw.protobuf.Ygw.Node;
-import org.yamcs.ygw.protobuf.Ygw.ParameterData;
 
 import io.netty.buffer.ByteBuf;
 
@@ -119,11 +121,38 @@ public class YgwNodeLink extends AbstractTcTmParamLink {
         notifyStopped();
     }
 
-    public void processParameters(int linkId, ParameterData pdata) {
-        System.out.println("got parameters linkId=" + linkId + ": " + pdata);
+    public void processParameters(int linkId, String group, int seqNum, List<ParameterValue> pvList) {
+        if (linkId != this.linkId) {
+            var subLink = subLinks.get(linkId);
+            if (subLink == null) {
+                log.warn("Received parameters packet on an unexisting sublink {}; ignoring", linkId);
+            } else {
+                subLink.processParameters(linkId, group, seqNum, pvList);
+            }
+            return;
+        }
+        if (parameterSink == null) {
+            log.warn(
+                    "Received parameters on a link {} not enabled for parameters; ignoring."
+                            + "To enable parameters, please use ppStream: pp_realtime in the link configuration",
+                    getName());
+            return;
+        }
+        pvList.stream().collect(Collectors.groupingBy(ParameterValue::getGenerationTime))
+                .forEach((t, l) -> parameterSink.updateParameters(t, group, seqNum, pvList));
     }
 
     public void processTm(int linkId, ByteBuf buf) {
+        if (linkId != this.linkId) {
+            var subLink = subLinks.get(linkId);
+            if (subLink == null) {
+                log.warn("Received TM packet on an unexisting sublink {}; ignoring", linkId);
+            } else {
+                subLink.processTm(linkId, buf);
+            }
+            return;
+        }
+
         if (!tmEnabled) {
             log.warn("Received TM packet on a link {} not enabled for TM packets; ignoring", getName());
             return;
@@ -149,6 +178,16 @@ public class YgwNodeLink extends AbstractTcTmParamLink {
     }
 
     public void processLinkStatus(int linkId, LinkStatus lstatus) {
+        if (linkId != this.linkId) {
+            var subLink = subLinks.get(linkId);
+            if (subLink == null) {
+                log.warn("Received link status on an unexisting sublink {}; ignoring", linkId);
+            } else {
+                subLink.processLinkStatus(linkId, lstatus);
+            }
+            return;
+        }
+
         if (linkStatus == null) {
             // first link status received
             // cannot use the dataIn and dataOut because cannot infer the data rates
@@ -220,5 +259,9 @@ public class YgwNodeLink extends AbstractTcTmParamLink {
 
     public boolean isTcPacketDataLinkImplemented() {
         return tcEnabled;
+    }
+
+    public boolean isParameterDataLinkImplemented() {
+        return true;
     }
 }

@@ -1,4 +1,4 @@
-use std::net::SocketAddr;
+
 pub mod mynode;
 
 use mynode::MyNode;
@@ -32,7 +32,7 @@ async fn main() -> Result<()> {
         println!("server terminated with error {:?}", err);
     }
 
-    let pd = ParameterDefinition{ ..Default::default()};
+    let _pd = ParameterDefinition{ ..Default::default()};
     Ok(())
 }
 

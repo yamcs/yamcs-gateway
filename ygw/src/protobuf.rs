@@ -1,5 +1,6 @@
 // protobuf definitions
 use core::f32;
+use std::time::{SystemTime, UNIX_EPOCH};
 
 use self::ygw::{value, ParameterValue, Timestamp, Value};
 
@@ -78,4 +79,15 @@ where
     T: IntoValue,
 {
     v.into_value()
+}
+
+pub fn now() -> Timestamp {
+    let start = SystemTime::now();
+    let since_the_epoch = start
+        .duration_since(UNIX_EPOCH)
+        .expect("Cannot use times before the unix epoch");
+    let millis =
+        since_the_epoch.as_secs() as i64 * 1000 + since_the_epoch.subsec_nanos() as i64 / 1_000_000;
+    let picos = (since_the_epoch.subsec_nanos() % 1_000_000) * 1000;
+    Timestamp { millis, picos }
 }

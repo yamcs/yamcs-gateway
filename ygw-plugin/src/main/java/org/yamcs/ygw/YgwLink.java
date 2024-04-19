@@ -17,7 +17,6 @@ import org.yamcs.YamcsServerInstance;
 import org.yamcs.Spec.OptionType;
 
 import org.yamcs.events.EventProducerFactory;
-import org.yamcs.http.api.InstancesApi;
 import org.yamcs.logging.Log;
 import org.yamcs.parameter.SoftwareParameterManager;
 import org.yamcs.tctm.AbstractLink;
@@ -61,6 +60,9 @@ public class YgwLink extends AbstractLink implements AggregatedDataLink {
     YfeChannelHandler handler;
     YgwParameterManager paramMgr;
 
+    // this is the processor to which we listen for parameter updates
+    String parameterProcessorName;
+
     @Override
     public void init(String instance, String name, YConfiguration config) {
         super.init(instance, name, config);
@@ -73,27 +75,9 @@ public class YgwLink extends AbstractLink implements AggregatedDataLink {
         log.setContext(name);
         eventProducer = EventProducerFactory.getEventProducer(instance, name, 10000);
         timeService = YamcsServer.getTimeService(instance);
-        String procName = config.getString("processor");
+        parameterProcessorName = config.getString("processor");
         this.dataSource = config.getEnum("dataSource", DataSource.class);
 
-        YamcsServerInstance ysi = InstancesApi.verifyInstanceObj(instance);
-        Processor processor = ysi.getProcessor(procName);
-        if (processor == null) {
-            throw new ConfigurationException("No processor '" + procName + "' within instance '" + instance + "'");
-        }
-        var ppm =  processor.getParameterProcessorManager();
-        SoftwareParameterManager mgr = ppm.getSoftwareParameterManager(dataSource);
-
-        if (mgr == null) {
-            paramMgr = new YgwParameterManager(instance, dataSource);
-            
-        } else if (mgr instanceof YgwParameterManager) {
-            this.paramMgr = (YgwParameterManager) mgr;
-            ppm.addSoftwareParameterManager(dataSource, paramMgr);
-        } else {
-            throw new ConfigurationException(
-                    "A software parameter manager already registered for the source " + dataSource);
-        }
     }
 
     @Override
@@ -228,6 +212,25 @@ public class YgwLink extends AbstractLink implements AggregatedDataLink {
     @Override
     protected void doStart() {
         getEventLoop().execute(() -> connect());
+        YamcsServerInstance ysi = YamcsServer.getServer().getInstance(yamcsInstance);
+        Processor processor = ysi.getProcessor(parameterProcessorName);
+        if (processor == null) {
+            throw new ConfigurationException(
+                    "No processor '" + parameterProcessorName + "' within instance '" + yamcsInstance + "'");
+        }
+        var ppm = processor.getParameterProcessorManager();
+        SoftwareParameterManager mgr = ppm.getSoftwareParameterManager(dataSource);
+
+        if (mgr == null) {
+            paramMgr = new YgwParameterManager(processor, yamcsInstance, dataSource);
+
+        } else if (mgr instanceof YgwParameterManager) {
+            this.paramMgr = (YgwParameterManager) mgr;
+            ppm.addSoftwareParameterManager(dataSource, paramMgr);
+        } else {
+            throw new ConfigurationException(
+                    "A software parameter manager already registered for the source " + dataSource);
+        }
         notifyStarted();
     }
 
@@ -307,24 +310,26 @@ public class YgwLink extends AbstractLink implements AggregatedDataLink {
             byte type = buf.readByte();
             System.out
                     .println("read message type: " + type + " length: " + length + " readable: " + buf.readableBytes());
-
-            if (type == MessageType.TM_VALUE) {
-                processTm(buf);
-            } else if (type == MessageType.PARAMETER_DATA_VALUE) {
-                processParameters(buf);
-            } else if (type == MessageType.EVENT_VALUE) {
-                processEvent(buf);
-            } else if (type == MessageType.NODE_INFO_VALUE) {
-                processNodeInfo(buf);
-            } else if (type == MessageType.LINK_STATUS_VALUE) {
-                processLinkStatus(buf);
-            } else if (type == MessageType.PARAMETER_DEFINITIONS_VALUE) {
-                processParameterDefs(buf);
-            } else {
-                // TODO
-                log.warn("message of type {} not implemented", type);
+            try {
+                if (type == MessageType.TM_VALUE) {
+                    processTm(buf);
+                } else if (type == MessageType.PARAMETER_DATA_VALUE) {
+                    processParameters(buf);
+                } else if (type == MessageType.EVENT_VALUE) {
+                    processEvent(buf);
+                } else if (type == MessageType.NODE_INFO_VALUE) {
+                    processNodeInfo(buf);
+                } else if (type == MessageType.LINK_STATUS_VALUE) {
+                    processLinkStatus(buf);
+                } else if (type == MessageType.PARAMETER_DEFINITIONS_VALUE) {
+                    processParameterDefs(buf);
+                } else {
+                    // TODO
+                    log.warn("message of type {} not implemented", type);
+                }
+            } catch (Exception e) {
+                log.error("Exception processing message", e);
             }
-
         }
 
         private void processNodeInfo(ByteBuf buf) {
@@ -370,13 +375,16 @@ public class YgwLink extends AbstractLink implements AggregatedDataLink {
                 log.warn("Failed to decode parameters", e);
                 return;
             }
-
+            log.trace("Got parameter data {}", pdata);
+            
             YgwNodeLink node = nodes.get(nodeId);
             if (node == null) {
                 log.warn("Got message for unknown node {}", nodeId);
                 return;
             }
-            node.processParameters(linkId, pdata);
+            var pvList = paramMgr.processParameters(YgwLink.this, nodeId, pdata);
+
+            node.processParameters(linkId, pdata.getGroup(), pdata.getSeqNum(), pvList);
         }
 
         private void processLinkStatus(ByteBuf buf) {
@@ -408,7 +416,9 @@ public class YgwLink extends AbstractLink implements AggregatedDataLink {
                 log.warn("Failed to decode parameter definition", e);
                 return;
             }
-            paramMgr.addParameterDefs(mdbPath, pdefs);
+            log.debug("Got parameter definitions {}", pdefs);
+
+            paramMgr.addParameterDefs(YgwLink.this, nodeId, mdbPath, pdefs);
         }
 
         public boolean isConnected() {
