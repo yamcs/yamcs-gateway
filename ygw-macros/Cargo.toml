@@ -2,6 +2,10 @@
 name = "ygw-macros"
 version = "0.1.0"
 edition = "2021"
+description = "The goal of Yamcs Gateway is to allow Yamcs to control instruments/payloads as part of an EGSE. This crate facilitates easier definition of parameters and commands in Yamcs."
+homepage = "https://github.com/xpromache/yamcs-gateway"
+repository = "https://github.com/xpromache/yamcs-gateway"
+license = "MIT"
 
 [lib]
 proc-macro = true
