@@ -8,7 +8,7 @@ import java.util.concurrent.locks.ReentrantReadWriteLock;
 import org.yamcs.xtce.Parameter;
 
 class ParameterPool {
-    final HashMap<String, YgwParameter> byName = new HashMap<>();
+    final HashMap<Parameter, YgwParameter> byParam = new HashMap<>();
     final HashMap<Key, YgwParameter> byId = new HashMap<>();
     ReadWriteLock rwLock = new ReentrantReadWriteLock();
 
@@ -16,7 +16,7 @@ class ParameterPool {
         rwLock.writeLock().lock();
         try {
             ygwPlist.forEach(p -> {
-                byName.put(p.p.getQualifiedName(), p);
+                byParam.put(p.p, p);
                 byId.put(key(link, p.nodeId, p.id), p);
             });
         } finally {
@@ -24,10 +24,10 @@ class ParameterPool {
         }
     }
 
-    YgwParameter getByName(String fqn) {
+    YgwParameter getByParameter(Parameter p) {
         rwLock.readLock().lock();
         try {
-            return byName.get(fqn);
+            return byParam.get(p);
         } finally {
             rwLock.readLock().unlock();
         }
@@ -97,13 +97,15 @@ class ParameterPool {
         final YgwLink link;
         final int nodeId;
         final int id;
+        final boolean writable;
 
-        public YgwParameter(YgwLink link, int nodeId, Parameter p, int id) {
+        public YgwParameter(YgwLink link, int nodeId, Parameter p, int id, boolean writable) {
             super();
             this.p = p;
             this.link = link;
             this.nodeId = nodeId;
             this.id = id;
+            this.writable = writable;
         }
     }
 }

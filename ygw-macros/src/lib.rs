@@ -39,6 +39,7 @@ fn parameter_pool_impl(mut item_struct: ItemStruct) -> Result<TokenStream> {
     let meta_name = format_ident!("{}Meta", struct_name);
 
     let mut setters = Vec::new();
+    let mut idgetters = Vec::new();
     let mut meta_inits = Vec::new();
     let mut param_defs = Vec::new();
     let mut param_mod_values = Vec::new();
@@ -50,10 +51,11 @@ fn parameter_pool_impl(mut item_struct: ItemStruct) -> Result<TokenStream> {
     if let syn::Fields::Named(ref mut fields) = item_struct.fields {
         num_fields = fields.named.len() as u32;
         for f in fields.named.iter_mut() {
-            let (extra_meta_fields, init, setter) = get_meta_fields(f)?;
+            let (extra_meta_fields, init, setter, getid) = get_field_methods(field_id, f)?;
             meta_fields.extend(extra_meta_fields);
             meta_inits.push(init);
             setters.push(setter);
+            idgetters.push(getid);
 
             param_defs.push(get_para_def(field_id, &f)?);
             param_mod_values.push(get_para_mod_value(field_id, &f)?);
@@ -82,6 +84,8 @@ fn parameter_pool_impl(mut item_struct: ItemStruct) -> Result<TokenStream> {
 
         impl #struct_name {
             #(#setters)*
+
+            #(#idgetters)*
 
             fn get_definitions(&self) -> ygw::protobuf::ygw::ParameterDefinitionList {
                 let mut definitions = Vec::new();
@@ -122,13 +126,13 @@ fn parameter_pool_impl(mut item_struct: ItemStruct) -> Result<TokenStream> {
 
             /// send the values with the current (now) timestamp
             pub async fn send_values(&mut self, tx: &Sender<YgwMessage>) -> ygw::Result<()> {
-                 tx.send(ygw::msg::YgwMessage::Parameters(self._meta.addr, self.get_values(ygw::protobuf::now())))
+                 tx.send(ygw::msg::YgwMessage::ParameterData(self._meta.addr, self.get_values(ygw::protobuf::now())))
                     .await.map_err(|_| YgwError::ServerShutdown)
             }
 
             /// send the modified values and clear the modified flag
             pub async fn send_modified_values(&mut self, tx: &Sender<YgwMessage>) -> ygw::Result<()> {
-                tx.send(ygw::msg::YgwMessage::Parameters(self._meta.addr, self.get_modified_values()))
+                tx.send(ygw::msg::YgwMessage::ParameterData(self._meta.addr, self.get_modified_values()))
                    .await.map_err(|_| YgwError::ServerShutdown)
            }
 
@@ -227,16 +231,19 @@ fn get_para_mod_value(id: u32, field: &Field) -> Result<proc_macro2::TokenStream
     })
 }
 
-fn get_meta_fields(
+fn get_field_methods(
+    id: u32,
     field: &Field,
 ) -> Result<(
     Vec<Field>,
+    proc_macro2::TokenStream,
     proc_macro2::TokenStream,
     proc_macro2::TokenStream,
 )> {
     let name = field.ident.as_ref().unwrap();
     let ty = &field.ty;
     let setter_name = format_ident!("set_{}", name);
+    let id_name = format_ident!("id_{}", name);
 
     let gentime_name = format_ident!("{}_gentime", name);
     let modified_name = format_ident!("{}_modified", name);
@@ -255,12 +262,17 @@ fn get_meta_fields(
         self._meta.#modified_name = true;
     }};
 
+    let getid = quote! {
+        pub fn #id_name(&self) -> u32{
+            self._meta.start_id + #id
+    }};
+
     let init = quote! {
         #gentime_name: gentime.clone(),
         #modified_name: false,
     };
 
-    Ok((vec![gentime_field, modified_field], init, setter))
+    Ok((vec![gentime_field, modified_field], init, setter, getid))
 }
 
 fn map_type(ty: &syn::Type) -> Result<String> {

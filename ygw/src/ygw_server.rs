@@ -127,6 +127,7 @@ impl Server {
 
             let encoder_tx = encoder_tx.clone();
             log::info!("Starting node {} with id {}", props.name, node_id);
+            println!("node:{} tx: {:?} rx: {:?}", node_id, tx, rx);
             let jh = tokio::spawn(async move { node.run(node_id, encoder_tx, rx).await });
             handles.push(jh);
 
@@ -235,7 +236,7 @@ async fn encoder_task(
                                     node.para_defs.definitions.extend(pdefs.definitions);
                                 }
                             },
-                            YgwMessage::Parameters(addr, pvals) => {
+                            YgwMessage::ParameterData(addr, pvals) => {
                                 if let Some(node) = nodes.get_mut(&addr.node_id()) {
                                     node.para_values.insert(pvals.group.clone(), pvals);
                                 }
@@ -258,8 +259,6 @@ async fn encoder_task(
                             log::warn!("Error sending initial data message to {}", yc.addr);
                             continue;
                         }
-
-
                         connections.push(yc);
                     },
                     Some(CtrlMessage::YamcsConnectionClosed(addr)) => connections.retain(|yc| yc.addr != addr),
@@ -455,7 +454,6 @@ async fn writer_task(mut sock: OwnedWriteHalf, mut chan: Receiver<Bytes>) -> Res
     loop {
         match chan.recv().await {
             Some(buf) => {
-                //println!("writing to socket in thread {:?}", std::thread::current());
                 sock.write_all(&buf).await?;
             }
             None => break,

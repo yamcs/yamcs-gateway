@@ -2,6 +2,8 @@
 use core::f32;
 use std::time::{SystemTime, UNIX_EPOCH};
 
+use crate::YgwError;
+
 use self::ygw::{value, ParameterValue, Timestamp, Value};
 
 pub mod pvalue {
@@ -12,53 +14,141 @@ pub mod ygw {
     include!(concat!(env!("OUT_DIR"), "/yamcs.protobuf.ygw.rs"));
 }
 
-pub trait IntoValue {
-    fn into_value(self) -> Value;
-}
-
-impl IntoValue for f32 {
-    fn into_value(self) -> Value {
+impl From<f32> for Value {
+    fn from(item: f32) -> Self {
         Value {
-            v: Some(value::V::FloatValue(self)),
-        }
-    }
-}
-impl IntoValue for f64 {
-    fn into_value(self) -> Value {
-        Value {
-            v: Some(value::V::DoubleValue(self)),
+            v: Some(value::V::FloatValue(item)),
         }
     }
 }
 
-impl IntoValue for u32 {
-    fn into_value(self) -> Value {
+impl From<f64> for Value {
+    fn from(item: f64) -> Self {
         Value {
-            v: Some(value::V::Uint32Value(self)),
+            v: Some(value::V::DoubleValue(item)),
         }
     }
 }
 
-impl IntoValue for u64 {
-    fn into_value(self) -> Value {
+impl From<u32> for Value {
+    fn from(item: u32) -> Self {
         Value {
-            v: Some(value::V::Uint64Value(self)),
+            v: Some(value::V::Uint32Value(item)),
         }
     }
 }
 
-impl IntoValue for bool {
-    fn into_value(self) -> Value {
+impl From<u64> for Value {
+    fn from(item: u64) -> Self {
         Value {
-            v: Some(value::V::BooleanValue(self)),
+            v: Some(value::V::Uint64Value(item)),
         }
     }
 }
+
+impl From<bool> for Value {
+    fn from(item: bool) -> Self {
+        Value {
+            v: Some(value::V::BooleanValue(item)),
+        }
+    }
+}
+
+impl TryFrom<Value> for f32 {
+    type Error = YgwError;
+
+    fn try_from(value: Value) -> Result<Self, Self::Error> {
+        match value.v {
+            Some(value::V::FloatValue(v)) => Ok(v),
+            _ => Err(YgwError::ConversionError( format!("{:?}", value), "f32".into())),
+        }
+    }
+}
+
+impl TryFrom<Value> for f64 {
+    type Error = YgwError;
+
+    fn try_from(value: Value) -> Result<Self, Self::Error> {
+        match value.v {
+            Some(value::V::DoubleValue(v)) => Ok(v),
+            _ => Err(YgwError::ConversionError( format!("{:?}", value), "f64".into())),
+        }
+    }
+}
+
+
+impl TryFrom<Value> for u32 {
+    type Error = YgwError;
+
+    fn try_from(value: Value) -> Result<Self, Self::Error> {
+        match value.v {
+            Some(value::V::Uint32Value(v)) => Ok(v),
+            _ => Err(YgwError::ConversionError( format!("{:?}", value), "u32".into())),
+        }
+    }
+}
+
+impl TryFrom<Value> for i32 {
+    type Error = YgwError;
+
+    fn try_from(value: Value) -> Result<Self, Self::Error> {
+        match value.v {
+            Some(value::V::Sint32Value(v)) => Ok(v),
+            _ => Err(YgwError::ConversionError( format!("{:?}", value), "i32".into())),
+        }
+    }
+}
+
+impl TryFrom<Value> for u64 {
+    type Error = YgwError;
+
+    fn try_from(value: Value) -> Result<Self, Self::Error> {
+        match value.v {
+            Some(value::V::Uint64Value(v)) => Ok(v),
+            _ => Err(YgwError::ConversionError( format!("{:?}", value), "u64".into())),
+        }
+    }
+}
+
+impl TryFrom<Value> for i64 {
+    type Error = YgwError;
+
+    fn try_from(value: Value) -> Result<Self, Self::Error> {
+        match value.v {
+            Some(value::V::Sint64Value(v)) => Ok(v),
+            _ => Err(YgwError::ConversionError( format!("{:?}", value), "i64".into())),
+        }
+    }
+}
+
+
+impl TryFrom<Value> for bool {
+    type Error = YgwError;
+
+    fn try_from(value: Value) -> Result<Self, Self::Error> {
+        match value.v {
+            Some(value::V::BooleanValue(v)) => Ok(v),
+            _ =>Err(YgwError::ConversionError( format!("{:?}", value), "bool".into())),
+        }
+    }
+}
+
+impl TryFrom<Value> for String {
+    type Error = YgwError;
+
+    fn try_from(value: Value) -> Result<Self, Self::Error> {
+        match value.v {
+            Some(value::V::StringValue(v)) => Ok(v),
+            _ => Err(YgwError::ConversionError( format!("{:?}", value), "String".into())),
+        }
+    }
+}
+
 
 /// returns a parameter value having only the generation time and the engineering value
 pub fn get_pv_eng<T>(id: u32, gentime: Option<Timestamp>, eng_value: T) -> ParameterValue
 where
-    T: IntoValue,
+    T: Into<Value>,
 {
     ParameterValue {
         id,
@@ -66,9 +156,9 @@ where
         eng_value: Some(get_value(eng_value)),
         acquisition_time: None,
         generation_time: gentime,
-        acquisition_status: None,
-        monitoring_result: None,
-        range_condition: None,
+      //  acquisition_status: None,
+       // monitoring_result: None,
+        //range_condition: None,
         expire_millis: None,
     }
 }
@@ -76,10 +166,14 @@ where
 /// returns a value for one of the common types
 pub fn get_value<T>(v: T) -> Value
 where
-    T: IntoValue,
+    T: Into<Value>,
 {
-    v.into_value()
+    v.into()
 }
+
+
+
+
 
 pub fn now() -> Timestamp {
     let start = SystemTime::now();

@@ -1,16 +1,23 @@
-use tokio::sync::mpsc::Sender;
+use tokio::{sync::mpsc::Sender, time};
 
 use async_trait::async_trait;
 use tokio::sync::mpsc::Receiver;
 use ygw::{
     msg::{Addr, YgwMessage},
-    protobuf::{now, ygw::ParameterDefinition},
+    protobuf::{
+        now,
+        ygw::{ParameterDefinition, ParameterUpdates},
+    },
     Link, LinkStatus, Result, YgwError, YgwLinkNodeProperties, YgwNode,
 };
 use ygw_macros::parameter_group;
 
 pub struct MyNode {
     props: YgwLinkNodeProperties,
+}
+pub struct BasicType {
+    abcd: u32,
+    xyz: f32,
 }
 
 #[parameter_group]
@@ -52,29 +59,42 @@ impl YgwNode for MyNode {
         //
         let mut my_params = MyParameters {
             a: 10,
-            b: 3.14,
+            b: -1.0,
             _meta: MyParametersMeta::new(addr, now()),
         };
-        
+
         my_params.send_definitions(&tx).await?;
 
         my_params.send_values(&tx).await?;
+        let mut interval = tokio::time::interval(time::Duration::from_secs(1));
+        let t0 = tokio::time::Instant::now();
+        loop {
+            tokio::select! {
+                    msg = rx.recv() => {
+                        if let Some(msg) = msg {
+                        log::info!("Got message {:?}", msg);
+                        link_status.data_in(1, 0);
+                        
+                        match msg {
+                            YgwMessage::ParameterUpdates(_id, pdata) => {
+                               if let Err(e) = update_params(&mut my_params, pdata) {
+                                    log::warn!("Error updating parameters: {}", e);
+                               }
+                            },
+                            _ => log::warn!("Got unexpected message {:?}", msg),
+                        };
 
-        while let Some(msg) = rx.recv().await {
-            link_status.data_in(1, 0);
-
-            println!("got message via bla: {:?}", msg);
-            match msg {
-                YgwMessage::Parameters(_id, _pc) => {}
-                _ => log::warn!("Got unexpected message {:?}", msg),
-            };
-
-
-            my_params.set_a(my_params.a+1, now());
-
-            my_params.send_modified_values(&tx).await?;
-
-            link_status.send(&tx).await?;
+                        my_params.send_modified_values(&tx).await?;
+                        link_status.send(&tx).await?;
+                    } else {
+                        break;
+                    }
+                },
+                t = interval.tick() => {
+                    my_params.set_b(f32::sin(t.duration_since(t0).as_secs_f32()/10.0), now());
+                    my_params.send_modified_values(&tx).await?;
+                }
+            }
         }
 
         Ok(())
@@ -92,4 +112,22 @@ impl MyNode {
             },
         })
     }
+}
+
+fn update_params(my_params: &mut MyParameters, pdata: ParameterUpdates) -> Result<()> {
+    for pv in pdata.parameters {
+        if let Some(v) = pv.eng_value {
+            if pv.id == my_params.id_a() {
+                let gentime = pv.generation_time.unwrap_or(now());
+                my_params.set_a(v.try_into()?, gentime);
+            }
+        } else {
+            log::warn!(
+                "Parameter Value without engineering value, ignored: {:?}",
+                pv
+            );
+        }
+    }
+
+    Ok(())
 }

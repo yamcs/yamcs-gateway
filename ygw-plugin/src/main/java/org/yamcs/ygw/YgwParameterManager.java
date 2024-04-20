@@ -11,16 +11,18 @@ import org.yamcs.mdb.Mdb;
 import org.yamcs.mdb.MdbFactory;
 import org.yamcs.parameter.ParameterValue;
 import org.yamcs.parameter.SoftwareParameterManager;
-import org.yamcs.parameter.Value;
 import org.yamcs.protobuf.Yamcs.Value.Type;
 import org.yamcs.time.TimeService;
+import org.yamcs.utils.TimeEncoding;
 import org.yamcs.xtce.DataSource;
 import org.yamcs.xtce.NameDescription;
 import org.yamcs.xtce.Parameter;
 import org.yamcs.xtce.ParameterType;
 import org.yamcs.xtce.UnitType;
 import org.yamcs.ygw.ParameterPool.YgwParameter;
+import org.yamcs.ygw.protobuf.Ygw.MessageType;
 import org.yamcs.ygw.protobuf.Ygw.ParameterData;
+import org.yamcs.ygw.protobuf.Ygw.ParameterUpdates;
 import org.yamcs.ygw.protobuf.Ygw.ParameterDefinition;
 import org.yamcs.ygw.protobuf.Ygw.ParameterDefinitionList;
 
@@ -41,24 +43,68 @@ public class YgwParameterManager implements SoftwareParameterManager {
     final DataSource dataSource;
     final Mdb mdb;
     final TimeService timeService;
+    final Processor processor;
 
     public YgwParameterManager(Processor processor, String yamcsInstance, DataSource dataSource) {
         this.dataSource = dataSource;
         this.mdb = MdbFactory.getInstance(yamcsInstance);
+        this.processor = processor;
         this.timeService = YamcsServer.getTimeService(yamcsInstance);
     }
 
     // called from Yamcs API -> send all parameter values to YGW
     @Override
     public void updateParameters(List<ParameterValue> pvals) {
-        // TODO Auto-generated method stub
 
-    }
+        // first sanity check and value transformation to the target type
+        List<ParameterValue> pvals1 = new ArrayList<>();
+        var lvc = processor.getLastValueCache();
 
-    // called from Yamcs API -> send all parameter values to YGW
-    @Override
-    public void updateParameter(Parameter p, Value v) {
-        // TODO Auto-generated method stub
+        for (var pv : pvals) {
+            var ygwp = pool.getByParameter(pv.getParameter());
+            if (ygwp == null) {
+                throw new IllegalArgumentException(
+                        "The parameter " + pv.getParameterQualifiedName()
+                                + " is not currently register with any gateway");
+            }
+            if (!ygwp.writable) {
+                throw new IllegalArgumentException(
+                        "Parameter " + pv.getParameterQualifiedName() + " is not writable");
+            }
+            pvals1.add(SoftwareParameterManager.transformValue(lvc, pv));
+        }
+
+        // now set the parameters grouping per linke and node
+        List<ParameterValue> remaining = null;
+        YgwLink link = null;
+        int nodeId = -1;
+
+        while (pvals1 != null) {
+            ParameterUpdates pdata = ParameterUpdates.newInstance();
+            for (var pv : pvals1) {
+                var ygwp = pool.getByParameter(pv.getParameter());
+
+                if (link == null) {
+                    link = ygwp.link;
+                    nodeId = ygwp.nodeId;
+                    pdata.addParameters(toProto(ygwp, pv));
+                } else if (link == ygwp.link && nodeId == ygwp.nodeId) {
+                    pdata.addParameters(toProto(ygwp, pv));
+                } else {
+                    if (remaining == null) {
+                        remaining = new ArrayList<>();
+                        remaining.add(pv);
+                    }
+                }
+            }
+            link.sendMessage((byte) MessageType.PARAMETER_UPDATES_VALUE, nodeId, 0, pdata.toByteArray())
+                    .whenComplete((c, t) -> {
+                        if (t != null) {
+                            log.warn("Error sending parameters ", t);
+                        }
+                    });
+            pvals1 = remaining;
+        }
 
     }
 
@@ -68,8 +114,9 @@ public class YgwParameterManager implements SoftwareParameterManager {
         List<ParameterValue> plist = new ArrayList<>(pdata.getParameters().length());
         for (var qpv : pdata.getParameters()) {
             YgwParameter ygwp = pool.getById(ygwLink, nodeId, qpv.getId());
-            if(ygwp == null) {
-                log.warn("No parameter found for linke: {}, node: {}, pid: {}; ignoring", ygwLink.getName(), nodeId, qpv.getId());
+            if (ygwp == null) {
+                log.warn("No parameter found for linke: {}, node: {}, pid: {}; ignoring", ygwLink.getName(), nodeId,
+                        qpv.getId());
                 continue;
             }
             plist.add(fromProto(ygwp, qpv));
@@ -79,11 +126,10 @@ public class YgwParameterManager implements SoftwareParameterManager {
 
     }
 
-
     public void addParameterDefs(YgwLink link, int nodeId, String namespace, ParameterDefinitionList pdefs) {
         List<Parameter> plist = new ArrayList<>();
         List<YgwParameter> ygwPlist = new ArrayList<>();
-        
+
         for (ParameterDefinition pdef : pdefs.getDefinitions()) {
             if (pdef.getRelativeName().contains("..")) {
                 log.warn("Invalid name {} for parameter, ignored", pdef.getRelativeName());
@@ -118,7 +164,7 @@ public class YgwParameterManager implements SoftwareParameterManager {
 
             p.setParameterType(ptype);
             plist.add(p);
-            ygwPlist.add(new YgwParameter(link, nodeId, p, pdef.getId()));
+            ygwPlist.add(new YgwParameter(link, nodeId, p, pdef.getId(), !pdef.hasWritable() || pdef.getWritable()));
         }
 
         try {
@@ -192,5 +238,29 @@ public class YgwParameterManager implements SoftwareParameterManager {
         return pv;
     }
 
+    private org.yamcs.ygw.protobuf.Ygw.ParameterValue toProto(YgwParameter ygwp, ParameterValue pv) {
+        var qpv = org.yamcs.ygw.protobuf.Ygw.ParameterValue.newInstance().setId(ygwp.id);
+
+        if (pv.getGenerationTime() != TimeEncoding.INVALID_INSTANT) {
+            qpv.setGenerationTime(ProtoConverter.toProtoTimestamp(pv.getGenerationTime()));
+        }
+
+        if (pv.getAcquisitionTime() != TimeEncoding.INVALID_INSTANT) {
+            qpv.setGenerationTime(ProtoConverter.toProtoTimestamp(pv.getAcquisitionTime()));
+        }
+
+        if (pv.getEngValue() != null) {
+            qpv.setEngValue(ProtoConverter.toProto(pv.getEngValue()));
+        }
+
+        if (pv.getRawValue() != null) {
+            qpv.setRawValue(ProtoConverter.toProto(pv.getRawValue()));
+        }
+        if (pv.getExpireMillis() > 0) {
+            qpv.setExpireMillis(pv.getExpireMillis());
+        }
+
+        return qpv;
+    }
 
 }

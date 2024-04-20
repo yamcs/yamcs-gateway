@@ -37,9 +37,11 @@ pub enum YgwMessage {
     TmPacket(Addr, TmPacket),
     TcPacket(Addr, protobuf::ygw::PreparedCommand),
     Event(Addr, protobuf::ygw::Event),
-    Parameters(Addr, protobuf::ygw::ParameterData),
+    ParameterData(Addr, protobuf::ygw::ParameterData),
     LinkStatus(Addr, protobuf::ygw::LinkStatus),
     LinkCommand(Addr, protobuf::ygw::LinkCommand),
+    ParameterUpdates(Addr, protobuf::ygw::ParameterUpdates),
+    
 }
 
 #[derive(Debug, PartialEq)]
@@ -65,7 +67,7 @@ impl YgwMessage {
             YgwMessage::Event(addr, ev) => {
                 encode_message(addr, MessageType::Event, ev)
             }
-            YgwMessage::Parameters(addr, pdata) => {
+            YgwMessage::ParameterData(addr, pdata) => {
                 encode_message(addr, MessageType::ParameterData, pdata)
             }
             YgwMessage::ParameterDefinitions(addr, pdefs) => {
@@ -95,7 +97,7 @@ impl YgwMessage {
                 version, VERSION
             )));
         }
-        let msg_type = buf.get_u8();
+        let msg_type = buf.get_u8() as i32;
         let node_id = buf.get_u32();
         let link_id = buf.get_u32();
         let addr = Addr {
@@ -103,16 +105,17 @@ impl YgwMessage {
             link_id,
         };
 
-        match msg_type.try_into() {
-            Ok(MessageType::Tc) => match protobuf::ygw::PreparedCommand::decode(buf) {
+        println!("Got message {:?}", msg_type);
+        match msg_type {
+            x if x == MessageType::Tc as i32 => match protobuf::ygw::PreparedCommand::decode(buf) {
                 Ok(prep_cmd) => Ok(YgwMessage::TcPacket(addr, prep_cmd)),
                 Err(e) => Err(YgwError::DecodeError(e.to_string())),
             },
-            Ok(MessageType::ParameterData) => match protobuf::ygw::ParameterData::decode(buf) {
-                Ok(param_data) => Ok(YgwMessage::Parameters(addr, param_data)),
+            x if x == MessageType::ParameterUpdates as i32 => match protobuf::ygw::ParameterUpdates::decode(buf) {
+                Ok(param_data) => Ok(YgwMessage::ParameterUpdates(addr, param_data)),
                 Err(e) => Err(YgwError::DecodeError(e.to_string())),
             },
-            Ok(MessageType::LinkCommand) => match protobuf::ygw::LinkCommand::decode(buf) {
+            x if x == MessageType::LinkCommand as i32 => match protobuf::ygw::LinkCommand::decode(buf) {
                 Ok(link_cmd) => Ok(YgwMessage::LinkCommand(addr, link_cmd)),
                 Err(e) => Err(YgwError::DecodeError(e.to_string())),
             },
@@ -129,8 +132,9 @@ impl YgwMessage {
             YgwMessage::TmPacket(addr, _) => addr.node_id,
             YgwMessage::TcPacket(addr, _) => addr.node_id,
             YgwMessage::Event(addr, _) => addr.node_id,
-            YgwMessage::Parameters(addr, _) => addr.node_id,
-            _ => 0,
+            YgwMessage::ParameterData(addr, _) => addr.node_id,
+            YgwMessage::ParameterUpdates(addr, _) => addr.node_id,
+            _ => todo!(),
         }
     }
 }
@@ -182,20 +186,4 @@ fn buf_with_header(data_len: usize, msg_type: MessageType, addr: Addr) -> BytesM
     buf.put_u32(addr.node_id);
     buf.put_u32(addr.link_id);
     buf
-}
-impl TryFrom<u8> for MessageType {
-    type Error = ();
-
-    fn try_from(v: u8) -> std::result::Result<Self, Self::Error> {
-        match v {
-            x if x == MessageType::Tm as u8 => Ok(MessageType::Tm),
-            x if x == MessageType::Tc as u8 => Ok(MessageType::Tc),
-            x if x == MessageType::Event as u8 => Ok(MessageType::Event),
-            x if x == MessageType::ParameterData as u8 => Ok(MessageType::ParameterData),
-            x if x == MessageType::ParameterDefinitions as u8 => {
-                Ok(MessageType::ParameterDefinitions)
-            }
-            _ => Err(()),
-        }
-    }
 }

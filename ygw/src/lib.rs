@@ -31,7 +31,10 @@ pub enum YgwError {
 
     /// this is used to quit the run method of the nodes when the channel towards the server is closed
     #[error("server is shutting down")]
-    ServerShutdown
+    ServerShutdown,
+
+    #[error("error converting: {0} to {1}")]
+    ConversionError(String, String),
 }
 
 /// A YGW node represents a connection to an end device.

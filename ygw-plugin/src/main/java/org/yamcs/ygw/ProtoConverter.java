@@ -164,4 +164,8 @@ public class ProtoConverter {
         // FIXME
         return t.getMillis() + 37000;
     }
+
+    public static Timestamp toProtoTimestamp(long instant) {
+        return Timestamp.newInstance().setMillis(instant - 37000);
+    }
 }

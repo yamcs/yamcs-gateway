@@ -15,7 +15,6 @@ import org.yamcs.YConfiguration;
 import org.yamcs.YamcsServer;
 import org.yamcs.YamcsServerInstance;
 import org.yamcs.Spec.OptionType;
-
 import org.yamcs.events.EventProducerFactory;
 import org.yamcs.logging.Log;
 import org.yamcs.parameter.SoftwareParameterManager;
@@ -211,26 +210,30 @@ public class YgwLink extends AbstractLink implements AggregatedDataLink {
 
     @Override
     protected void doStart() {
-        getEventLoop().execute(() -> connect());
         YamcsServerInstance ysi = YamcsServer.getServer().getInstance(yamcsInstance);
         Processor processor = ysi.getProcessor(parameterProcessorName);
+
         if (processor == null) {
-            throw new ConfigurationException(
-                    "No processor '" + parameterProcessorName + "' within instance '" + yamcsInstance + "'");
+            notifyFailed(new ConfigurationException(
+                    "No processor '" + parameterProcessorName + "' within instance '" + yamcsInstance + "'"));
+            return;
         }
         var ppm = processor.getParameterProcessorManager();
         SoftwareParameterManager mgr = ppm.getSoftwareParameterManager(dataSource);
 
         if (mgr == null) {
-            paramMgr = new YgwParameterManager(processor, yamcsInstance, dataSource);
-
+            this.paramMgr = new YgwParameterManager(processor, yamcsInstance, dataSource);
+            ppm.addSoftwareParameterManager(dataSource, paramMgr);
         } else if (mgr instanceof YgwParameterManager) {
             this.paramMgr = (YgwParameterManager) mgr;
-            ppm.addSoftwareParameterManager(dataSource, paramMgr);
         } else {
-            throw new ConfigurationException(
-                    "A software parameter manager already registered for the source " + dataSource);
+            notifyFailed(new ConfigurationException(
+                    "There is already a different parameter manager registered for the source " + dataSource));
+            return;
         }
+
+        getEventLoop().execute(() -> connect());
+
         notifyStarted();
     }
 
@@ -308,8 +311,6 @@ public class YgwLink extends AbstractLink implements AggregatedDataLink {
                 return;
             }
             byte type = buf.readByte();
-            System.out
-                    .println("read message type: " + type + " length: " + length + " readable: " + buf.readableBytes());
             try {
                 if (type == MessageType.TM_VALUE) {
                     processTm(buf);

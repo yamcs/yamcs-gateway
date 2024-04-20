@@ -17,7 +17,7 @@ async fn main() -> Result<()> {
         TmUdpNode::new("TM_NODE2", "quickstart test TM UDP", ([127, 0, 0, 1], 10015).into(), 0).await?;
 
     let node3 =
-        MyNode::new("TM_NODE2", "quickstart test TM UDP").await?;
+        MyNode::new("MY_NODE", "quickstart test TM UDP").await?;
 
 
     let server = ServerBuilder::new()
