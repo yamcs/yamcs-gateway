@@ -2,54 +2,19 @@ Yamcs Gateway
 
 The goal of this project is to allow Yamcs to control instruments/payloads as part of an EGSE. 
 
-It is implemented in Rust to allow close to realtime behavior. The connection to Yamcs is via TCP.
+EGSE, short for Electrical Ground Support Equipment, is a common term in the aerospace industry denoting specialized equipment and systems essential for supporting, testing, and maintaining the electrical systems and subsystems of spacecraft, satellites, and similar vehicles. These EGSE systems often utilize low-level hardware connections such as MIL1553, CANbus, RS422, among others.
 
-As seen in the diagram below the program is composed of an async part on top of tokio interacting with a set of components (called ``ygw nodes``) that implement the communication with the hardware devices. The nodes may chose to be sync or async and the sync ones can run into their own thread set to realtime priority if required. Communication between the async and sync nodes is done using Tokio channels.
+Yamcs abstracts the concept of data links for connecting to a target system, with most links implementing network protocols such as TCP or UDP. Integrating links that utilize low-level hardware connections poses challenges in Java, often requiring the use of device drivers available only in C.
 
-![ ALT](/drawings/yamcs-gateway.drawio.png)
+In projects where Yamcs is used as part of the EGSE, a common approach involves developing interfacing software that communicates with Yamcs via standard TCP network connections and controls the target system using custom-built protocols. The Yamcs Gateway serves as a framework facilitating the implementation of such interface software.
 
-Each node (corresponding to an end device) gets assigned a name and a u32 id. The names and ids are communicated to Yamcs which will use them to route commands and parameters.
+Rust has been selected as the language for implementing the Yamcs Gateway due to its high-level nature, memory safety features, and its ease of interfacing with C libraries.
 
-This crate (yamcs-if) contains the code for communication with Yamcs and several standard nodes:
- - UDP TM - receives TM packets via UDP and passes them to Yamcs
- - UDP TC - passes TC from Yamcs via UDP to a remote device.
+The directory structure includes:
 
-The create does not contain an executable. Each project should setup a separate binary executable crate combining the components from this crate possibly with its own components.
+* ygw: This serves as the primary Rust library implementing the Yamcs Gateway, and it's available on crates.io for easy access.
+* ygw-macros: This directory contains implementations of macros designed to streamline the creation of Yamcs parameters and commands.
+* ygw-plugin: Here lies a Yamcs plugin, which operates within Yamcs itself and communicates with the Gateway via TCP.
+* quickstart: An illustrative example program showcasing the utilization of the ygw crate to generate an executable.
 
 
-**Node implementation and usage**
-To create a node, each implementation will have to implement the YgwNode trait
-
-```rust
-#[async_trait]
-pub trait YgwNode:Send {
-    /// the properties of the node (name, description,...) - will be communicated to Yamcs
-    fn properties(&self) -> &YgwLinkNodeProperties;
-
-    /// the list of sub links - will also be communicated to Yamcs
-    fn sub_links(&self) -> &[Link];
-
-    /// method called by the ygw server to run the node
-    /// tx and rx are used to communicate between the node and the server
-    /// the node_id is the id allocated to this node, it has to be used for all the messages sent to the server
-    async fn run(&mut self, node_id: u32, tx: Sender<YgwMessage>, rx: Receiver<YgwMessage>);
-}
-``` 
-
-Once the nodes have been implemented, the main program will look something like:
-```rust
-  fn async main() {
-    let addr = ([127, 0, 0, 1], 56789).into();
-    let node1 = ...
-    let node2 = ...
-    let server = ServerBuilder::new(addr)
-        .add_node(Box::new(node1))
-        .add_node(Box::new(node2))
-        .build();
-    let server_handle = server.start().await.unwrap();
-
-    server_handle.join();
-  }
-```
-
-In Yamcs, each node appears as a link with possible sub-links. The link up/down commands and events are propagated from Yamcs to the node as messages.

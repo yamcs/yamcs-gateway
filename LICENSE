@@ -1,2 +1,2 @@
-The Yamcs gateway (all the Rust code) is distributed under the MIT license.
-The plugin for Yamcs (all the Java code) required to connect from Yamcs to the Gateway is distributed under the AGPL license.
+The Yamcs gateway (ygw and ygw-macros) is distributed under the MIT license.
+The plugin for Yamcs (ygw-plugin) required to connect from Yamcs to the Gateway is distributed under the AGPL license.

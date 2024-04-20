@@ -2,6 +2,12 @@
 name = "ygw"
 version = "0.1.0"
 edition = "2021"
+license = "MIT"
+description = "The goal of Yamcs Gateway is to allow Yamcs to control instruments/payloads as part of an EGSE."
+homepage = "https://github.com/xpromache/yamcs-gateway"
+repository = "https://github.com/xpromache/yamcs-gateway"
+keywords = ["Yamcs", "EGSE", "Satellite", "Spacecraft"]
+categories = ["aerospace"]
 
 [dependencies]
 bytes = "1"

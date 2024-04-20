@@ -6,7 +6,7 @@ package yamcs.protobuf.ygw;
 
 option java_package = "org.yamcs.ygw.protobuf";
 
-import "pvalue.proto";
+//import "pvalue.proto";
 
 
 enum MessageType {

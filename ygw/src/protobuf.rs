@@ -5,11 +5,11 @@ use std::time::{SystemTime, UNIX_EPOCH};
 use crate::YgwError;
 
 use self::ygw::{value, ParameterValue, Timestamp, Value};
-
+/*
 pub mod pvalue {
     include!(concat!(env!("OUT_DIR"), "/yamcs.protobuf.pvalue.rs"));
 }
-
+*/
 pub mod ygw {
     include!(concat!(env!("OUT_DIR"), "/yamcs.protobuf.ygw.rs"));
 }
