@@ -2,25 +2,14 @@
 //!
 //! Based on tokio tasks:
 //!  - one task accepts TCP connections and spawns a read and writer task for each connection
-//!  - one encoder task receives messages from Targets, encodes them to binary and sends it to all Yamcs writers
-//!  - one decoder task receives data from the Yamcs readers, decodes it to messages and sends the messages to the targets
+//!  - one encoder task receives messages from nodes, encodes them to binary and sends it to all Yamcs writers
+//!  - one decoder task receives data from the Yamcs readers, decodes it to messages and sends the messages to the nodes
 //!
 //! The TCP protocol is formed by the length delimited messages:
 //!  - 4 bytes length = n (max 8MB)
 //!  - n bytes data
 //!
-//! The data is:
-//! - 1   byte version = 0
-//! - 1   byte message type
-//! - 4   bytes target id = FFFFFFFF if the target is not specified
-//! - n-6 bytes sub_data
-//!
-//! For TM packets sub_data is:
-//! - 12   bytes acquisition time
-//! - n-18 bytes packet data
-//!
-//! For TC packets sub_data is:
-//! - PreparedCommand protobuf encoded
+//! For the encoding of the data see [`decode`](msg::decode).
 //!
 //!
 use std::{collections::HashMap, net::SocketAddr};
@@ -81,8 +70,8 @@ impl ServerBuilder {
         self.addr = addr;
         self
     }
-    pub fn add_node(mut self, target: Box<dyn YgwNode>) -> Self {
-        self.nodes.push(target);
+    pub fn add_node(mut self, node: Box<dyn YgwNode>) -> Self {
+        self.nodes.push(node);
 
         self
     }
@@ -213,7 +202,7 @@ impl NodeData {
     }
 }
 
-/// listens for new messages from the targets
+/// Listens for new messages from the nodes
 /// encodes them to bytes and sends the bytes to all writer tasks (to be sent to Yamcs)
 ///
 async fn encoder_task(
@@ -226,6 +215,7 @@ async fn encoder_task(
     loop {
         select! {
             msg = encoder_rx.recv() => {
+                // message received from a node
                 match msg {
                     Some(msg) => {
                         let buf = msg.encode().freeze();
@@ -253,6 +243,7 @@ async fn encoder_task(
                 }
             }
             msg = ctrl_rx.recv() => {
+                //control message
                 match msg {
                     Some(CtrlMessage::NewYamcsConnection(yc)) => {
                         if let Err(_)= send_initial_data(&yc, &nodes).await {
@@ -270,7 +261,7 @@ async fn encoder_task(
     Ok(())
 }
 
-/// send encoded message to all connected yamcs servers
+/// Sends an encoded message to all connected Yamcs servers
 async fn send_data_to_all(connections: &mut Vec<YamcsConnection>, buf: Bytes) {
     let mut idx = 0;
     while idx < connections.len() {
@@ -295,22 +286,19 @@ async fn send_data_to_all(connections: &mut Vec<YamcsConnection>, buf: Bytes) {
 }
 
 /// Called when there is a new Yamcs connection
-/// Sends node information, parameter definitions and parameter values
+/// Sends the node information, parameter definitions and parameter values
 async fn send_initial_data(
     yc: &YamcsConnection,
     nodes: &HashMap<u32, NodeData>,
 ) -> std::result::Result<(), SendError<Bytes>> {
     //send the node information
     let nl = protobuf::ygw::NodeList {
-        nodes: nodes
-            .iter()
-            .map(|(_, nd)| nd.node_to_proto())
-            .collect(),
+        nodes: nodes.iter().map(|(_, nd)| nd.node_to_proto()).collect(),
     };
     let buf = msg::encode_node_info(&nl);
     yc.chan_tx.send(buf.freeze()).await?;
 
-    //send the parameter defintions
+    //send the parameter definitions
     for nd in nodes.values() {
         let buf = msg::encode_message(
             &Addr::new(nd.node_id, 0),
@@ -343,8 +331,8 @@ async fn send_initial_data(
     Ok(())
 }
 
-/// receives data from the yamcs readers, converts them to messages
-/// and sends the messages to the targets
+/// receives data from the Yamcs readers, converts them to messages
+/// and sends the messages to the nodes
 async fn decoder_task(
     mut decoder_rx: Receiver<Bytes>,
     mut nodes: HashMap<u32, Sender<YgwMessage>>,
@@ -362,7 +350,7 @@ async fn decoder_task(
                             }
                         }
                         None => {
-                            log::warn!("Received message for unknown target {} ", node_id);
+                            log::warn!("Received message for unknown node {} ", node_id);
                         }
                     }
                 }
@@ -539,7 +527,7 @@ mod tests {
         assert_eq!(msg, msg1);
     }
 
-    // performance test sending a TM packet from the target to a TCP client
+    // performance test sending a TM packet from the node to a TCP client
     // this is able to send about 620k msg/sec multithreaded and about 530k msg/sec single threaded on an i7
     // That is about 1600 nanoseconds/message. Out of that, at least 1000 are spent on the syscall
     // overhead for sending to the socket and probably at least half of the remaining
@@ -657,7 +645,12 @@ mod tests {
             &[]
         }
 
-        async fn run(&mut self, node_id: u32, tx: Sender<YgwMessage>, rx: Receiver<YgwMessage>) -> Result<()> {
+        async fn run(
+            &mut self,
+            node_id: u32,
+            tx: Sender<YgwMessage>,
+            rx: Receiver<YgwMessage>,
+        ) -> Result<()> {
             self.tx.send((node_id, tx, rx)).await.unwrap();
 
             tokio::time::sleep(std::time::Duration::from_secs(200)).await;

@@ -4,10 +4,7 @@ use bytes::{Buf, BufMut, Bytes, BytesMut};
 use prost::Message;
 
 use crate::{
-    protobuf::{
-        self,
-        ygw::MessageType,
-    },
+    protobuf::{self, ygw::MessageType},
     Result, YgwError,
 };
 
@@ -41,7 +38,6 @@ pub enum YgwMessage {
     LinkStatus(Addr, protobuf::ygw::LinkStatus),
     LinkCommand(Addr, protobuf::ygw::LinkCommand),
     ParameterUpdates(Addr, protobuf::ygw::ParameterUpdates),
-    
 }
 
 #[derive(Debug, PartialEq)]
@@ -61,12 +57,8 @@ impl YgwMessage {
                 buf.put(&tm.data[..]);
                 buf
             }
-            YgwMessage::TcPacket(addr, pc) => {
-                encode_message(addr, MessageType::Tc, pc)
-            }
-            YgwMessage::Event(addr, ev) => {
-                encode_message(addr, MessageType::Event, ev)
-            }
+            YgwMessage::TcPacket(addr, pc) => encode_message(addr, MessageType::Tc, pc),
+            YgwMessage::Event(addr, ev) => encode_message(addr, MessageType::Event, ev),
             YgwMessage::ParameterData(addr, pdata) => {
                 encode_message(addr, MessageType::ParameterData, pdata)
             }
@@ -83,6 +75,13 @@ impl YgwMessage {
 
     /// decode a message from Bytes
     /// the data should start directly with the version (no data length)
+    ///  The data is:
+    /// - 1 byte - version = 0
+    /// - 1 byte - message type
+    /// - 4 bytes - node id = FFFFFFFF if the node is not specified
+    /// - 4 bytes - link id = 0 if it is for the node itself (and not a sub-link)
+    /// - n bytes - sub_data
+    ///
     pub(crate) fn decode(buf: &mut Bytes) -> Result<Self> {
         if buf.len() < 10 {
             return Err(YgwError::DecodeError(format!(
@@ -100,25 +99,25 @@ impl YgwMessage {
         let msg_type = buf.get_u8() as i32;
         let node_id = buf.get_u32();
         let link_id = buf.get_u32();
-        let addr = Addr {
-            node_id,
-            link_id,
-        };
+        let addr = Addr { node_id, link_id };
 
-        println!("Got message {:?}", msg_type);
         match msg_type {
             x if x == MessageType::Tc as i32 => match protobuf::ygw::PreparedCommand::decode(buf) {
                 Ok(prep_cmd) => Ok(YgwMessage::TcPacket(addr, prep_cmd)),
                 Err(e) => Err(YgwError::DecodeError(e.to_string())),
             },
-            x if x == MessageType::ParameterUpdates as i32 => match protobuf::ygw::ParameterUpdates::decode(buf) {
-                Ok(param_data) => Ok(YgwMessage::ParameterUpdates(addr, param_data)),
-                Err(e) => Err(YgwError::DecodeError(e.to_string())),
-            },
-            x if x == MessageType::LinkCommand as i32 => match protobuf::ygw::LinkCommand::decode(buf) {
-                Ok(link_cmd) => Ok(YgwMessage::LinkCommand(addr, link_cmd)),
-                Err(e) => Err(YgwError::DecodeError(e.to_string())),
-            },
+            x if x == MessageType::ParameterUpdates as i32 => {
+                match protobuf::ygw::ParameterUpdates::decode(buf) {
+                    Ok(param_data) => Ok(YgwMessage::ParameterUpdates(addr, param_data)),
+                    Err(e) => Err(YgwError::DecodeError(e.to_string())),
+                }
+            }
+            x if x == MessageType::LinkCommand as i32 => {
+                match protobuf::ygw::LinkCommand::decode(buf) {
+                    Ok(link_cmd) => Ok(YgwMessage::LinkCommand(addr, link_cmd)),
+                    Err(e) => Err(YgwError::DecodeError(e.to_string())),
+                }
+            }
 
             _ => Err(YgwError::DecodeError(format!(
                 "Unexpected message type {}",
@@ -138,8 +137,6 @@ impl YgwMessage {
         }
     }
 }
-
-
 
 pub(crate) fn encode_message<T: prost::Message>(
     addr: &Addr,
@@ -177,7 +174,7 @@ fn encode_time(buf: &mut BytesMut, time: SystemTime) {
 }
 
 fn buf_with_header(data_len: usize, msg_type: MessageType, addr: Addr) -> BytesMut {
-     //message length without the length itself
+    //message length without the length itself
     let len = 10 + data_len;
     let mut buf = BytesMut::with_capacity(len);
     buf.put_u32(len as u32);
