@@ -5,6 +5,9 @@ pub mod tc_udp;
 pub mod tm_udp;
 pub mod protobuf;
 
+pub mod record_file;
+pub mod recorder;
+
 pub mod utc_converter;
 use std::sync::atomic::AtomicU32;
 
@@ -35,6 +38,13 @@ pub enum YgwError {
 
     #[error("error converting: {0} to {1}")]
     ConversionError(String, String),
+
+    #[error("recording file full; max number of segments {0} reached")]
+    RecordingFileFull(u32),
+
+    #[error("recording file is corrutped:{0}")]
+    CorruptedRecordingFile(String),
+
 }
 
 /// A YGW node represents a connection to an end device.

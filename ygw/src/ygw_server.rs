@@ -11,8 +11,12 @@
 //!
 //! For the encoding of the data see [`decode`](msg::decode).
 //!
-//!
-use std::{collections::HashMap, net::SocketAddr};
+
+use std::{
+    collections::HashMap,
+    net::SocketAddr,
+    path::{Path, PathBuf},
+};
 
 use bytes::Bytes;
 
@@ -31,8 +35,9 @@ use tokio_util::codec::{FramedRead, LengthDelimitedCodec};
 
 use crate::{
     hex8,
-    msg::{self, Addr, YgwMessage},
+    msg::{self, Addr, EncodedMessage, YgwMessage},
     protobuf::{self, ygw::MessageType},
+    recorder::Recorder,
     Link, Result, YgwError, YgwLinkNodeProperties, YgwNode,
 };
 
@@ -44,11 +49,13 @@ pub enum CtrlMessage {
 pub struct Server {
     nodes: Vec<Box<dyn YgwNode>>,
     addr: SocketAddr,
+    recorder_path: Option<PathBuf>,
 }
 
 pub struct ServerBuilder {
     nodes: Vec<Box<dyn YgwNode>>,
     addr: SocketAddr,
+    recorder_path: Option<PathBuf>,
 }
 
 impl Default for ServerBuilder {
@@ -64,15 +71,22 @@ impl ServerBuilder {
         Self {
             addr: ([127, 0, 0, 1], 7897).into(),
             nodes: Vec::new(),
+            recorder_path: None,
         }
     }
+
     pub fn set_addr(mut self, addr: SocketAddr) -> Self {
         self.addr = addr;
         self
     }
+
     pub fn add_node(mut self, node: Box<dyn YgwNode>) -> Self {
         self.nodes.push(node);
+        self
+    }
 
+    pub fn with_recorder_path(mut self, path: &Path) -> Self {
+        self.recorder_path.replace(path.to_owned());
         self
     }
 
@@ -80,6 +94,7 @@ impl ServerBuilder {
         Server {
             nodes: self.nodes,
             addr: self.addr,
+            recorder_path: self.recorder_path,
         }
     }
 }
@@ -116,7 +131,6 @@ impl Server {
 
             let encoder_tx = encoder_tx.clone();
             log::info!("Starting node {} with id {}", props.name, node_id);
-            println!("node:{} tx: {:?} rx: {:?}", node_id, tx, rx);
             let jh = tokio::spawn(async move { node.run(node_id, encoder_tx, rx).await });
             handles.push(jh);
 
@@ -130,7 +144,7 @@ impl Server {
         let accepter_jh =
             tokio::spawn(async move { accepter_task(ctrl_tx, socket, decoder_tx).await });
 
-        tokio::spawn(async move { encoder_task(ctrl_rx, encoder_rx, node_data).await });
+        tokio::spawn(async move { encoder_task(ctrl_rx, encoder_rx, node_data, self.recorder_path).await });
 
         tokio::spawn(async move { decoder_task(decoder_rx, node_tx_map).await });
 
@@ -149,7 +163,7 @@ pub struct YamcsConnection {
     addr: SocketAddr,
     writer_jh: JoinHandle<Result<()>>,
     reader_jh: JoinHandle<Result<()>>,
-    chan_tx: Sender<Bytes>,
+    chan_tx: Sender<EncodedMessage>,
     //if this option is true, the encoder will drop the Yamcs connection if it cannot keep up with the data
     drop_if_full: bool,
 }
@@ -209,8 +223,28 @@ async fn encoder_task(
     mut ctrl_rx: Receiver<CtrlMessage>,
     mut encoder_rx: Receiver<YgwMessage>,
     mut nodes: HashMap<u32, NodeData>,
+    recorder_path: Option<PathBuf>,
 ) -> Result<()> {
     let mut connections: Vec<YamcsConnection> = Vec::new();
+
+    let mut rn = 0;
+    let recorder_tx: Option<Sender<EncodedMessage>> = match recorder_path {
+        None => None,
+        Some(dir) => {
+            log::info!(
+                "Starting recorder with recording directory {}",
+                dir.display()
+            );
+            let (mut recorder, last_rn) = Recorder::new(&dir)?;
+            if let Some(last_rn) = last_rn {
+                rn = last_rn + 1;
+            }
+            let (recorder_tx, recorder_rx) = tokio::sync::mpsc::channel(100);
+            tokio::spawn(async move { recorder.record(recorder_rx).await });
+
+            Some(recorder_tx)
+        }
+    };
 
     loop {
         select! {
@@ -218,8 +252,15 @@ async fn encoder_task(
                 // message received from a node
                 match msg {
                     Some(msg) => {
-                        let buf = msg.encode().freeze();
-                        send_data_to_all(&mut connections, buf).await;
+                        rn+=1;
+                        let enc_msg = msg.encode(rn);
+                        if let Some(ref recorder_tx) = recorder_tx {
+                            if let Err(e) = recorder_tx.send(enc_msg.clone()).await {
+                                log::warn!("Error sending data to recorder {:?}", e);
+                            }
+                        }
+                        send_data_to_all(&mut connections, enc_msg).await;
+
                         match msg {
                             YgwMessage::ParameterDefinitions(addr, pdefs) => {
                                 if let Some(node) = nodes.get_mut(&addr.node_id()) {
@@ -262,20 +303,20 @@ async fn encoder_task(
 }
 
 /// Sends an encoded message to all connected Yamcs servers
-async fn send_data_to_all(connections: &mut Vec<YamcsConnection>, buf: Bytes) {
+async fn send_data_to_all(connections: &mut Vec<YamcsConnection>, msg: EncodedMessage) {
     let mut idx = 0;
     while idx < connections.len() {
-        let buf1 = buf.clone();
+        let msg1 = msg.clone();
         let yc = &connections[idx];
         if yc.drop_if_full {
-            if let Err(_) = yc.chan_tx.try_send(buf1) {
+            if let Err(_) = yc.chan_tx.try_send(msg1) {
                 log::warn!("Channel to {} is full, dropping connection", yc.addr);
                 yc.reader_jh.abort();
                 yc.writer_jh.abort();
                 connections.remove(idx);
                 continue;
             }
-        } else if let Err(_) = yc.chan_tx.send(buf1).await {
+        } else if let Err(_) = yc.chan_tx.send(msg1).await {
             //channel closed, the writer quit
             // (it hopefully printed an informative log message so no need to log anything extra here)
             connections.remove(idx);
@@ -290,30 +331,35 @@ async fn send_data_to_all(connections: &mut Vec<YamcsConnection>, buf: Bytes) {
 async fn send_initial_data(
     yc: &YamcsConnection,
     nodes: &HashMap<u32, NodeData>,
-) -> std::result::Result<(), SendError<Bytes>> {
+) -> std::result::Result<(), SendError<EncodedMessage>> {
     //send the node information
     let nl = protobuf::ygw::NodeList {
         nodes: nodes.iter().map(|(_, nd)| nd.node_to_proto()).collect(),
     };
     let buf = msg::encode_node_info(&nl);
-    yc.chan_tx.send(buf.freeze()).await?;
+    yc.chan_tx.send(buf).await?;
 
     //send the parameter definitions
     for nd in nodes.values() {
         let buf = msg::encode_message(
+            0,
             &Addr::new(nd.node_id, 0),
             MessageType::ParameterDefinitions,
             &nd.para_defs,
         );
-        yc.chan_tx.send(buf.freeze()).await?;
+        yc.chan_tx.send(buf).await?;
     }
 
     //send the parameter values
     for nd in nodes.values() {
         for pdata in nd.para_values.values() {
-            let buf =
-                msg::encode_message(&Addr::new(nd.node_id, 0), MessageType::ParameterData, pdata);
-            yc.chan_tx.send(buf.freeze()).await?;
+            let buf = msg::encode_message(
+                0,
+                &Addr::new(nd.node_id, 0),
+                MessageType::ParameterData,
+                pdata,
+            );
+            yc.chan_tx.send(buf).await?;
         }
     }
 
@@ -321,11 +367,12 @@ async fn send_initial_data(
     for nd in nodes.values() {
         for (&link_id, lstatus) in nd.link_status.iter() {
             let buf = msg::encode_message(
+                0,
                 &Addr::new(nd.node_id, link_id),
                 MessageType::LinkStatus,
                 lstatus,
             );
-            yc.chan_tx.send(buf.freeze()).await?;
+            yc.chan_tx.send(buf).await?;
         }
     }
     Ok(())
@@ -438,11 +485,11 @@ async fn reader_task(
 }
 
 //Writes data to one Yamcs server
-async fn writer_task(mut sock: OwnedWriteHalf, mut chan: Receiver<Bytes>) -> Result<()> {
+async fn writer_task(mut sock: OwnedWriteHalf, mut chan: Receiver<EncodedMessage>) -> Result<()> {
     loop {
         match chan.recv().await {
-            Some(buf) => {
-                sock.write_all(&buf).await?;
+            Some(msg) => {
+                sock.write_all(&msg).await?;
             }
             None => break,
         }
@@ -518,7 +565,7 @@ mod tests {
         let mut conn = TcpStream::connect(addr).await.unwrap();
         let pc = prepared_cmd();
         let msg = YgwMessage::TcPacket(Addr::new(node_id, 0), pc.clone());
-        let buf = msg.encode();
+        let buf = msg.encode(0);
 
         conn.write_all(&buf).await.unwrap();
 
