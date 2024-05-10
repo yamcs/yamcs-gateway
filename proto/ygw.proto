@@ -100,10 +100,13 @@ message ParameterData {
     // parameters in "rows" and also by components that provide parameters
     // from external sources.
     required string group = 2;
-    required uint32 seqNum = 4;
+    required uint32 seqNum = 3;
 
     // if all parameters have the same generation time, it can be skipped from the value and provided here
-    optional Timestamp  generationTime = 3;
+    optional Timestamp  generationTime = 4;
+
+     // if all parameters have the same aquisition time, it can be skipped from the value and provided here
+    optional Timestamp  acquisitionTime = 5;
 }
 
 // this message is sent from Yamcs to the Gateway

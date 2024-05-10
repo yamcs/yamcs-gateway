@@ -29,13 +29,13 @@ const DIFF_TAI_UTC: i32 = 37; // the difference between the TAI and UTC at the l
 
 #[derive(Debug)]
 pub struct DateTimeComponents {
-    year: i32,
-    month: i32,
-    day: i32,
-    hour: i32,
-    minute: i32,
-    second: i32,
-    millis: i32,
+    pub year: i32,
+    pub month: i32,
+    pub day: i32,
+    pub hour: i32,
+    pub minute: i32,
+    pub second: i32,
+    pub millis: i32,
 }
 
 #[derive(Default)]

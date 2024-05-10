@@ -303,13 +303,15 @@ public class YgwLink extends AbstractLink implements AggregatedDataLink {
         @Override
         public void channelRead(ChannelHandlerContext ctx, Object msg) throws Exception {
             ByteBuf buf = (ByteBuf) msg;
-            int length = buf.readInt();// length
+            buf.readInt();// length
             byte version = buf.readByte();
             if (version != VERSION) {
                 log.warn("Got mesage with version {}, expected {}; closing connection", version, VERSION);
                 ctx.close();
                 return;
             }
+            // recording number
+            long rn = buf.readLong();
             byte type = buf.readByte();
             try {
                 if (type == MessageType.TM_VALUE) {

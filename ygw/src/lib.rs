@@ -26,6 +26,12 @@ pub enum YgwError {
     #[error(transparent)]
     IOError(#[from] std::io::Error),
 
+    #[error("Device access error: {0}")]
+    DeviceAccessError(String),
+
+    #[error("parse error: {0}")]
+    ParseError(String),
+
     #[error("decoding error: {0}")]
     DecodeError(String),
 
@@ -147,9 +153,9 @@ impl LinkStatus {
     }
 
     /// set the state to failed with the given message
-    pub fn state_failed(&mut self, msg: &str) {
+    pub fn state_failed(&mut self, msg: String) {
         self.inner.state = protobuf::ygw::LinkState::Failed as i32;
-        self.inner.err = Some(msg.into());
+        self.inner.err = Some(msg);
     }
 
     /// send the status over the channel

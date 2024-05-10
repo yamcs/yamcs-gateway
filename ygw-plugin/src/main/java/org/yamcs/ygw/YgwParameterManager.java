@@ -52,7 +52,9 @@ public class YgwParameterManager implements SoftwareParameterManager {
         this.timeService = YamcsServer.getTimeService(yamcsInstance);
     }
 
-    // called from Yamcs API -> send all parameter values to YGW
+    /**
+     * called from Yamcs API -> send all parameter values to YGW
+     */
     @Override
     public void updateParameters(List<ParameterValue> pvals) {
 
@@ -108,9 +110,21 @@ public class YgwParameterManager implements SoftwareParameterManager {
 
     }
 
-    // called when parameters are coming from the gateway
+    /**
+     * called when parameters are coming from the gateway
+     * 
+     */
     public List<ParameterValue> processParameters(YgwLink ygwLink, int nodeId,
             ParameterData pdata) {
+        long now = TimeEncoding.getWallclockTime();
+        long genTime = now;
+        long acqTime = now;
+        if (pdata.hasGenerationTime()) {
+            genTime = ProtoConverter.fromProtoMillis(pdata.getGenerationTime());
+        }
+        if (pdata.hasAcquisitionTime()) {
+            acqTime = ProtoConverter.fromProtoMillis(pdata.getAcquisitionTime());
+        }
         List<ParameterValue> plist = new ArrayList<>(pdata.getParameters().length());
         for (var qpv : pdata.getParameters()) {
             YgwParameter ygwp = pool.getById(ygwLink, nodeId, qpv.getId());
@@ -119,7 +133,7 @@ public class YgwParameterManager implements SoftwareParameterManager {
                         qpv.getId());
                 continue;
             }
-            plist.add(fromProto(ygwp, qpv));
+            plist.add(fromProto(ygwp, qpv, genTime, acqTime));
 
         }
         return plist;
@@ -209,7 +223,8 @@ public class YgwParameterManager implements SoftwareParameterManager {
         }
     }
 
-    private ParameterValue fromProto(YgwParameter ygwp, org.yamcs.ygw.protobuf.Ygw.ParameterValue qpv) {
+    private ParameterValue fromProto(YgwParameter ygwp, org.yamcs.ygw.protobuf.Ygw.ParameterValue qpv, long genTime,
+            long acqTime) {
         ParameterValue pv = new ParameterValue(ygwp.p);
         if (qpv.hasEngValue()) {
             pv.setEngValue(ProtoConverter.fromProto(qpv.getEngValue()));
@@ -222,13 +237,13 @@ public class YgwParameterManager implements SoftwareParameterManager {
         if (qpv.hasGenerationTime()) {
             pv.setGenerationTime(ProtoConverter.fromProtoMillis(qpv.getGenerationTime()));
         } else {
-            pv.setGenerationTime(timeService.getMissionTime());
+            pv.setGenerationTime(genTime);
         }
 
         if (qpv.hasAcquisitionTime()) {
             pv.setAcquisitionTime(ProtoConverter.fromProtoMillis(qpv.getAcquisitionTime()));
         } else {
-            pv.setAcquisitionTime(timeService.getMissionTime());
+            pv.setAcquisitionTime(acqTime);
         }
 
         if (qpv.hasExpireMillis()) {
