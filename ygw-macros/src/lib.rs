@@ -103,6 +103,7 @@ fn parameter_pool_impl(mut item_struct: ItemStruct) -> Result<TokenStream> {
                     group: #struct_name_str.to_string(),
                     seq_num: self._meta.next_seq_count(),
                     generation_time: None,
+                    acquisition_time: None,
                 }
             }
 
@@ -114,7 +115,8 @@ fn parameter_pool_impl(mut item_struct: ItemStruct) -> Result<TokenStream> {
                     parameters,
                     group: #struct_name_str.to_string(),
                     seq_num: self._meta.next_seq_count(),
-                    generation_time: Some(gentime)
+                    generation_time: Some(gentime),
+                    acquisition_time: None,
                 }
             }
 
