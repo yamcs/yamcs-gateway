@@ -31,6 +31,7 @@ impl Addr {
 #[derive(Debug, PartialEq)]
 pub enum YgwMessage {
     ParameterDefinitions(Addr, protobuf::ygw::ParameterDefinitionList),
+    CommandDefinitions(Addr, protobuf::ygw::CommandDefinitionList),
     TmPacket(Addr, TmPacket),
     TcPacket(Addr, protobuf::ygw::PreparedCommand),
     Event(Addr, protobuf::ygw::Event),

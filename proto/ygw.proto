@@ -12,7 +12,7 @@ option java_package = "org.yamcs.ygw.protobuf";
 enum MessageType {
   NODE_INFO = 1;
   PARAMETER_DEFINITIONS = 2;
-  COMMAND_DEFINITIOS = 3;
+  COMMAND_DEFINITIONS = 3;
   TM = 4;
   TC = 5;
   EVENT = 6;
@@ -206,6 +206,26 @@ message ParameterDefinition {
 message ParameterDefinitionList {
     repeated ParameterDefinition definitions = 1;
 }
+
+message CommandArgument {
+    required string name = 1;
+    optional string description = 2;
+    optional string unit = 3;
+    required string argtype = 4;
+    optional Value defaultValue = 5;
+}
+
+message CommandDefinition {
+    // command name relative to the namespace defined in the Yamcs configuration
+    required string relativeName = 1;
+    optional string description = 2;
+    repeated CommandArgument arguments = 3;
+}
+
+message CommandDefinitionList {
+    repeated CommandDefinition definitions = 1;
+}
+
 enum LinkState {
     OK = 1;
     UNAVAIL = 2;
