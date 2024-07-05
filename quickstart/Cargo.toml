@@ -9,5 +9,5 @@ log = "0.4"
 tokio = "1.36.0"
 async-trait = "0.1.78"
 
-ygw = { path = "../ygw" }
+ygw = { path = "../ygw", features = ["socketcan"]}
 ygw-macros = {path = "../ygw-macros"}

@@ -4,7 +4,7 @@
 
 use std::{
     net::SocketAddr,
-    time::{self, SystemTime},
+    time::{self},
 };
 
 use async_trait::async_trait;
@@ -62,7 +62,7 @@ impl YgwNode for TmUdpNode {
 
                             let pkt = TmPacket {
                                 data: buf[ibs..len].to_vec(),
-                                acq_time: SystemTime::now(),
+                                acq_time: crate::protobuf::now(),
                             };
                             if let Err(_) = tx.send(YgwMessage::TmPacket(addr, pkt)).await {
                                 return Err(YgwError::ServerShutdown);

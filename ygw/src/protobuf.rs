@@ -2,6 +2,8 @@
 use core::f32;
 use std::time::{SystemTime, UNIX_EPOCH};
 
+use ygw::PreparedCommand;
+
 use crate::YgwError;
 
 use self::ygw::{value, ParameterValue, Timestamp, Value};
@@ -11,7 +13,16 @@ pub mod pvalue {
 }
 */
 pub mod ygw {
+    use std::fmt;
+
     include!(concat!(env!("OUT_DIR"), "/yamcs.protobuf.ygw.rs"));
+
+    impl fmt::Display for PreparedCommand {
+        fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+            // Customize this to provide a meaningful display of PreparedCommand
+            write!(f, "{:?}", self)
+        }
+    }
 }
 
 impl From<f32> for Value {
@@ -60,7 +71,10 @@ impl TryFrom<Value> for f32 {
     fn try_from(value: Value) -> Result<Self, Self::Error> {
         match value.v {
             Some(value::V::FloatValue(v)) => Ok(v),
-            _ => Err(YgwError::ConversionError( format!("{:?}", value), "f32".into())),
+            _ => Err(YgwError::ConversionError(
+                format!("{:?}", value),
+                "f32".into(),
+            )),
         }
     }
 }
@@ -71,11 +85,13 @@ impl TryFrom<Value> for f64 {
     fn try_from(value: Value) -> Result<Self, Self::Error> {
         match value.v {
             Some(value::V::DoubleValue(v)) => Ok(v),
-            _ => Err(YgwError::ConversionError( format!("{:?}", value), "f64".into())),
+            _ => Err(YgwError::ConversionError(
+                format!("{:?}", value),
+                "f64".into(),
+            )),
         }
     }
 }
-
 
 impl TryFrom<Value> for u32 {
     type Error = YgwError;
@@ -83,10 +99,28 @@ impl TryFrom<Value> for u32 {
     fn try_from(value: Value) -> Result<Self, Self::Error> {
         match value.v {
             Some(value::V::Uint32Value(v)) => Ok(v),
-            _ => Err(YgwError::ConversionError( format!("{:?}", value), "u32".into())),
+            _ => Err(YgwError::ConversionError(
+                format!("{:?}", value),
+                "u32".into(),
+            )),
         }
     }
 }
+
+impl TryFrom<Value> for Vec<u8> {
+    type Error = YgwError;
+
+    fn try_from(value: Value) -> Result<Self, Self::Error> {
+        match value.v {
+            Some(value::V::BinaryValue(v)) => Ok(v),
+            _ => Err(YgwError::ConversionError(
+                format!("{:?}", value),
+                "u32".into(),
+            )),
+        }
+    }
+}
+
 
 impl TryFrom<Value> for i32 {
     type Error = YgwError;
@@ -94,7 +128,10 @@ impl TryFrom<Value> for i32 {
     fn try_from(value: Value) -> Result<Self, Self::Error> {
         match value.v {
             Some(value::V::Sint32Value(v)) => Ok(v),
-            _ => Err(YgwError::ConversionError( format!("{:?}", value), "i32".into())),
+            _ => Err(YgwError::ConversionError(
+                format!("{:?}", value),
+                "i32".into(),
+            )),
         }
     }
 }
@@ -105,7 +142,10 @@ impl TryFrom<Value> for u64 {
     fn try_from(value: Value) -> Result<Self, Self::Error> {
         match value.v {
             Some(value::V::Uint64Value(v)) => Ok(v),
-            _ => Err(YgwError::ConversionError( format!("{:?}", value), "u64".into())),
+            _ => Err(YgwError::ConversionError(
+                format!("{:?}", value),
+                "u64".into(),
+            )),
         }
     }
 }
@@ -116,11 +156,13 @@ impl TryFrom<Value> for i64 {
     fn try_from(value: Value) -> Result<Self, Self::Error> {
         match value.v {
             Some(value::V::Sint64Value(v)) => Ok(v),
-            _ => Err(YgwError::ConversionError( format!("{:?}", value), "i64".into())),
+            _ => Err(YgwError::ConversionError(
+                format!("{:?}", value),
+                "i64".into(),
+            )),
         }
     }
 }
-
 
 impl TryFrom<Value> for bool {
     type Error = YgwError;
@@ -128,7 +170,10 @@ impl TryFrom<Value> for bool {
     fn try_from(value: Value) -> Result<Self, Self::Error> {
         match value.v {
             Some(value::V::BooleanValue(v)) => Ok(v),
-            _ =>Err(YgwError::ConversionError( format!("{:?}", value), "bool".into())),
+            _ => Err(YgwError::ConversionError(
+                format!("{:?}", value),
+                "bool".into(),
+            )),
         }
     }
 }
@@ -139,11 +184,13 @@ impl TryFrom<Value> for String {
     fn try_from(value: Value) -> Result<Self, Self::Error> {
         match value.v {
             Some(value::V::StringValue(v)) => Ok(v),
-            _ => Err(YgwError::ConversionError( format!("{:?}", value), "String".into())),
+            _ => Err(YgwError::ConversionError(
+                format!("{:?}", value),
+                "String".into(),
+            )),
         }
     }
 }
-
 
 /// returns a parameter value having only the generation time and the engineering value
 pub fn get_pv_eng<T>(id: u32, gentime: Option<Timestamp>, eng_value: T) -> ParameterValue
@@ -156,8 +203,8 @@ where
         eng_value: Some(get_value(eng_value)),
         acquisition_time: None,
         generation_time: gentime,
-      //  acquisition_status: None,
-       // monitoring_result: None,
+        //  acquisition_status: None,
+        // monitoring_result: None,
         //range_condition: None,
         expire_millis: None,
     }
@@ -171,9 +218,55 @@ where
     v.into()
 }
 
+/// looks up the raw value of the argument arg_name in the command and returns its value if it is of correct type
+/// if the argument is not found or has no raw value or has a different type an error is returned
+pub fn get_raw_arg<T: TryFrom<Value>>(pc: &PreparedCommand, arg_name: &str) -> Result<T, YgwError> {
+    for assignment in &pc.assignments {
+        if assignment.name == arg_name {
+            if let Some(ref value) = assignment.raw_value {
+                return T::try_from(value.clone()).map_err(|_| {
+                    YgwError::CommandError(format!(
+                        "Argument '{}' found but has incorrect type",
+                        arg_name
+                    ))
+                });
+            }
+            return Err(YgwError::CommandError(format!(
+                "Argument '{}' found but has no raw value",
+                arg_name
+            )));
+        }
+    }
+    Err(YgwError::CommandError(format!(
+        "Argument '{}' not found",
+        arg_name
+    )))
+}
 
-
-
+/// looks up the engineering value of the argument arg_name in the command and returns its value if it is of correct type
+/// if the argument is not found or has no raw value or has a different type an error is returned
+pub fn get_eng_arg<T: TryFrom<Value>>(pc: &PreparedCommand, arg_name: &str) -> Result<T, YgwError> {
+    for assignment in &pc.assignments {
+        if assignment.name == arg_name {
+            if let Some(ref value) = assignment.eng_value {
+                return T::try_from(value.clone()).map_err(|_| {
+                    YgwError::CommandError(format!(
+                        "Argument '{}' found but has incorrect type",
+                        arg_name
+                    ))
+                });
+            }
+            return Err(YgwError::CommandError(format!(
+                "Argument '{}' found but has no engineering value",
+                arg_name
+            )));
+        }
+    }
+    Err(YgwError::CommandError(format!(
+        "Argument '{}' not found",
+        arg_name
+    )))
+}
 
 pub fn now() -> Timestamp {
     let start = SystemTime::now();

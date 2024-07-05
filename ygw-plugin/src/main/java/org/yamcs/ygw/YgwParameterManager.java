@@ -140,6 +140,11 @@ public class YgwParameterManager implements SoftwareParameterManager {
 
     }
 
+    /**
+     * Called when receiving a list of parameter definitions from YGW.
+     * <p>
+     * Adds the definitions to the MDB after filtering out the invalid ones.
+     */
     public void addParameterDefs(YgwLink link, int nodeId, String namespace, ParameterDefinitionList pdefs) {
         List<Parameter> plist = new ArrayList<>();
         List<YgwParameter> ygwPlist = new ArrayList<>();
@@ -159,7 +164,7 @@ public class YgwParameterManager implements SoftwareParameterManager {
             try {
                 ptype = getParameterType(namespace, pdef);
             } catch (IOException e) {
-                log.error("Error adding parameters to the MDB", e);
+                log.error("Error adding parameter type to the MDB", e);
                 continue;
             }
 
@@ -197,7 +202,7 @@ public class YgwParameterManager implements SoftwareParameterManager {
             // not a basic type, it must exist in the MDB
             return mdb.getParameterType(pdef.getPtype());
         } else {
-            return mdb.getOrCreateBasicType(namespace, basicType, unit);
+            return mdb.getOrCreateBasicParameterType(namespace, basicType, unit);
         }
     }
 
@@ -210,7 +215,7 @@ public class YgwParameterManager implements SoftwareParameterManager {
     }
 
     // get the basic type (sint32, string, etc) corresponding to the string
-    private Type getBasicType(String pt) {
+    static Type getBasicType(String pt) {
         try {
             Type t = Type.valueOf(pt.toUpperCase());
             if (t == Type.AGGREGATE || t == Type.ARRAY || t == Type.NONE) {

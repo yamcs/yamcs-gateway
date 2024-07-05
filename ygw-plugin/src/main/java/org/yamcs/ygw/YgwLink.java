@@ -22,6 +22,7 @@ import org.yamcs.tctm.AbstractLink;
 import org.yamcs.tctm.AggregatedDataLink;
 import org.yamcs.tctm.Link;
 import org.yamcs.xtce.DataSource;
+import org.yamcs.ygw.protobuf.Ygw.CommandDefinitionList;
 import org.yamcs.ygw.protobuf.Ygw.Event;
 import org.yamcs.ygw.protobuf.Ygw.LinkStatus;
 import org.yamcs.ygw.protobuf.Ygw.MessageType;
@@ -58,6 +59,7 @@ public class YgwLink extends AbstractLink implements AggregatedDataLink {
 
     YfeChannelHandler handler;
     YgwParameterManager paramMgr;
+    YgwCommandManager cmdMgr;
 
     // this is the processor to which we listen for parameter updates
     String parameterProcessorName;
@@ -231,6 +233,7 @@ public class YgwLink extends AbstractLink implements AggregatedDataLink {
                     "There is already a different parameter manager registered for the source " + dataSource));
             return;
         }
+        cmdMgr = new YgwCommandManager(this, processor, yamcsInstance);
 
         getEventLoop().execute(() -> connect());
 
@@ -326,8 +329,9 @@ public class YgwLink extends AbstractLink implements AggregatedDataLink {
                     processLinkStatus(buf);
                 } else if (type == MessageType.PARAMETER_DEFINITIONS_VALUE) {
                     processParameterDefs(buf);
+                } else if (type == MessageType.COMMAND_DEFINITIONS_VALUE) {
+                    processCommandDefs(buf);
                 } else {
-                    // TODO
                     log.warn("message of type {} not implemented", type);
                 }
             } catch (Exception e) {
@@ -344,6 +348,9 @@ public class YgwLink extends AbstractLink implements AggregatedDataLink {
             }
         }
 
+        /**
+         * Called when TM packet messages are received from YGW
+         */
         private void processTm(ByteBuf buf) {
             int nodeId = buf.readInt();
             int linkId = buf.readInt();
@@ -356,6 +363,9 @@ public class YgwLink extends AbstractLink implements AggregatedDataLink {
             node.processTm(linkId, buf);
         }
 
+        /**
+         * Called when event messages are received from YGW
+         */
         private void processEvent(ByteBuf buf) {
             int nodeId = buf.readInt();
             int linkId = buf.readInt();
@@ -368,6 +378,9 @@ public class YgwLink extends AbstractLink implements AggregatedDataLink {
             }
         }
 
+        /**
+         * Called when parameter values are receive from YGW
+         */
         private void processParameters(ByteBuf buf) {
             int nodeId = buf.readInt();
             int linkId = buf.readInt();
@@ -379,7 +392,7 @@ public class YgwLink extends AbstractLink implements AggregatedDataLink {
                 return;
             }
             log.trace("Got parameter data {}", pdata);
-            
+
             YgwNodeLink node = nodes.get(nodeId);
             if (node == null) {
                 log.warn("Got message for unknown node {}", nodeId);
@@ -390,6 +403,9 @@ public class YgwLink extends AbstractLink implements AggregatedDataLink {
             node.processParameters(linkId, pdata.getGroup(), pdata.getSeqNum(), pvList);
         }
 
+        /**
+         * Called when the link status is received from YGW
+         **/
         private void processLinkStatus(ByteBuf buf) {
             int nodeId = buf.readInt();
             int linkId = buf.readInt();
@@ -411,7 +427,7 @@ public class YgwLink extends AbstractLink implements AggregatedDataLink {
 
         private void processParameterDefs(ByteBuf buf) {
             int nodeId = buf.readInt();
-            int linkId = buf.readInt();
+            /*int linkId =*/ buf.readInt();
             ParameterDefinitionList pdefs;
             try {
                 pdefs = ProtoBufUtils.fromByteBuf(buf, ParameterDefinitionList.newInstance());
@@ -422,6 +438,41 @@ public class YgwLink extends AbstractLink implements AggregatedDataLink {
             log.debug("Got parameter definitions {}", pdefs);
 
             paramMgr.addParameterDefs(YgwLink.this, nodeId, mdbPath, pdefs);
+        }
+
+        /**
+         * Called when a command definition message is received from YGW.
+         * <p>
+         * Register the commands to the MDB (if not already there)
+         * <p>
+         * TODO: check if the commands are already in the MDB and do something about it (when Yamcs will have the
+         * feature to keep track of MDB history)
+         */
+        private void processCommandDefs(ByteBuf buf) {
+            int nodeId = buf.readInt();
+            int linkId = buf.readInt();
+
+            YgwNodeLink node = nodes.get(nodeId);
+            if (node == null) {
+                log.warn("Got message for unknown node {}", nodeId);
+                return;
+            }
+            YgwNodeLink link = node.getSublink(linkId);
+            if (link == null) {
+                log.warn("Got message for unknown node/link {}/{}", nodeId, linkId);
+                return;
+            }
+            CommandDefinitionList cdefs;
+
+            try {
+                cdefs = ProtoBufUtils.fromByteBuf(buf, CommandDefinitionList.newInstance());
+            } catch (InvalidProtocolBufferException e) {
+                log.warn("Failed to decode parameter definition", e);
+                return;
+            }
+            log.debug("Got command definitions {}", cdefs);
+
+            cmdMgr.addCommandDefs(mdbPath, cdefs, link);
         }
 
         public boolean isConnected() {

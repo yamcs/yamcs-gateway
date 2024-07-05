@@ -144,7 +144,9 @@ impl Server {
         let accepter_jh =
             tokio::spawn(async move { accepter_task(ctrl_tx, socket, decoder_tx).await });
 
-        tokio::spawn(async move { encoder_task(ctrl_rx, encoder_rx, node_data, self.recorder_path).await });
+        tokio::spawn(async move {
+            encoder_task(ctrl_rx, encoder_rx, node_data, self.recorder_path).await
+        });
 
         tokio::spawn(async move { decoder_task(decoder_rx, node_tx_map).await });
 
@@ -182,6 +184,11 @@ struct NodeData {
     /// collects the parameter definitions as sent by the node
     /// sent in bulk to Yamcs upon connection
     para_defs: protobuf::ygw::ParameterDefinitionList,
+
+    /// collects the command definitions as sent by the node
+    /// sent in bulk to Yamcs upon connection
+    cmd_defs: protobuf::ygw::CommandDefinitionList,
+
     /// collects the parameter values per group as sent by the node
     /// sent in bulk to Yamcs upon connection
     para_values: HashMap<String, protobuf::ygw::ParameterData>,
@@ -199,6 +206,10 @@ impl NodeData {
             para_defs: protobuf::ygw::ParameterDefinitionList {
                 definitions: Vec::new(),
             },
+            cmd_defs: protobuf::ygw::CommandDefinitionList {
+                definitions: Vec::new(),
+            },
+
             para_values: HashMap::new(),
             link_status: HashMap::new(),
         }
@@ -277,6 +288,11 @@ async fn encoder_task(
                                     node.link_status.insert(addr.link_id(), link_status);
                                 }
                             },
+                            YgwMessage::CommandDefinitions(addr, cmd_defs) => {
+                                if let Some(node) = nodes.get_mut(&addr.node_id()) {
+                                    node.cmd_defs.definitions.extend(cmd_defs.definitions);
+                                }
+                            },
                             _ => {}
                         }
                     },
@@ -341,17 +357,32 @@ async fn send_initial_data(
 
     //send the parameter definitions
     for nd in nodes.values() {
-        let buf = msg::encode_message(
-            0,
-            &Addr::new(nd.node_id, 0),
-            MessageType::ParameterDefinitions,
-            &nd.para_defs,
-        );
-        yc.chan_tx.send(buf).await?;
+        if !nd.para_defs.definitions.is_empty() {
+            let buf = msg::encode_message(
+                0,
+                &Addr::new(nd.node_id, 0),
+                MessageType::ParameterDefinitions,
+                &nd.para_defs,
+            );
+            yc.chan_tx.send(buf).await?;
+        }
+    }
+
+    //send the command definitions
+    for nd in nodes.values() {
+        if !nd.cmd_defs.definitions.is_empty() {
+            let buf = msg::encode_message(
+                0,
+                &Addr::new(nd.node_id, 0),
+                MessageType::CommandDefinitions,
+                &nd.cmd_defs,
+            );
+            yc.chan_tx.send(buf).await?;
+        }
     }
 
     //send the parameter values
-    for nd in nodes.values() {
+    for nd in nodes.values() {   
         for pdata in nd.para_values.values() {
             let buf = msg::encode_message(
                 0,
@@ -501,7 +532,7 @@ async fn writer_task(mut sock: OwnedWriteHalf, mut chan: Receiver<EncodedMessage
 mod tests {
     use std::{
         io::ErrorKind,
-        time::{Duration, Instant, SystemTime},
+        time::{Duration, Instant},
     };
 
     use async_trait::async_trait;
@@ -546,7 +577,7 @@ mod tests {
                 Addr::new(node_id, 0),
                 TmPacket {
                     data: vec![1, 2, 3, 4],
-                    acq_time: SystemTime::now(),
+                    acq_time: protobuf::now(),
                 },
             ))
             .await
@@ -621,7 +652,7 @@ mod tests {
                         Addr::new(node_id, 0),
                         TmPacket {
                             data: vec![0; 1024],
-                            acq_time: SystemTime::now(),
+                            acq_time: protobuf::now(),
                         },
                     ))
                     .await

@@ -1,21 +1,26 @@
 pub mod msg;
 pub mod ygw_server;
 
-pub mod tc_udp;
-pub mod tm_udp;
+pub mod nodes {
+    pub mod tc_udp;
+    pub mod tm_udp;
+    #[cfg(feature = "socketcan")]
+    pub mod ygw_socketcan;
+}
 pub mod protobuf;
 
 pub mod record_file;
 pub mod recorder;
 
 pub mod utc_converter;
+
 use std::sync::atomic::AtomicU32;
 
 use async_trait::async_trait;
 use msg::{Addr, YgwMessage};
+
 use thiserror::Error;
 use tokio::sync::mpsc::{Receiver, Sender};
-
 
 static PARAMETER_ID_GENERATOR: AtomicU32 = AtomicU32::new(0);
 
@@ -48,9 +53,18 @@ pub enum YgwError {
     #[error("recording file full; max number of segments {0} reached")]
     RecordingFileFull(u32),
 
-    #[error("recording file is corrutped:{0}")]
+    #[error("recording file is corrupted:{0}")]
     CorruptedRecordingFile(String),
 
+    #[error("command error: {0}")]
+    CommandError(String),
+
+    #[cfg(feature = "socketcan")]
+    #[error(transparent)]
+    SocketCanError(#[from] socketcan::Error),
+
+    #[error("{0}")]
+    Other(#[from] Box<dyn std::error::Error + Send + Sync>),
 }
 
 /// A YGW node represents a connection to an end device.
@@ -68,7 +82,12 @@ pub trait YgwNode: Send {
     /// method called by the ygw server to run the node
     /// tx and rx are used to communicate between the node and the server
     /// the node_id is the id allocated to this node, it has to be used for all the messages sent to the server
-    async fn run(&mut self, node_id: u32, tx: Sender<YgwMessage>, mut rx: Receiver<YgwMessage>) -> Result<()>;
+    async fn run(
+        &mut self,
+        node_id: u32,
+        tx: Sender<YgwMessage>,
+        mut rx: Receiver<YgwMessage>,
+    ) -> Result<()>;
 }
 
 /// properties for a link or node
@@ -122,7 +141,7 @@ impl LinkStatus {
                 data_in_size: 0,
                 data_out_size: 0,
                 state: protobuf::ygw::LinkState::Ok as i32,
-                err: None
+                err: None,
             },
         }
     }
@@ -159,16 +178,14 @@ impl LinkStatus {
     }
 
     /// send the status over the channel
-    pub async fn send(
-        &self,
-        tx: &Sender<YgwMessage>,
-    ) -> Result<()> {
-         tx.send(YgwMessage::LinkStatus(self.addr, self.inner.clone()))
-            .await.map_err(|_| YgwError::ServerShutdown)
+    pub async fn send(&self, tx: &Sender<YgwMessage>) -> Result<()> {
+        tx.send(YgwMessage::LinkStatus(self.addr, self.inner.clone()))
+            .await
+            .map_err(|_| YgwError::ServerShutdown)
     }
 }
 
-pub fn generate_pids(num_pids: u32) -> u32{
+pub fn generate_pids(num_pids: u32) -> u32 {
     PARAMETER_ID_GENERATOR.fetch_add(num_pids, std::sync::atomic::Ordering::Relaxed)
 }
 
@@ -178,6 +195,4 @@ pub fn hex8(data: &[u8]) -> String {
 }
 
 #[cfg(test)]
-mod tests {
-   
-}
+mod tests {}

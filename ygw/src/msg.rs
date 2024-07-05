@@ -1,10 +1,10 @@
-use std::{ops::Deref, time::SystemTime};
+use std::ops::Deref;
 
 use bytes::{Buf, BufMut, Bytes, BytesMut};
 use prost::Message;
 
 use crate::{
-    protobuf::{self, ygw::MessageType},
+    protobuf::{self, ygw::{self, MessageType}},
     Result, YgwError,
 };
 
@@ -38,6 +38,7 @@ pub enum YgwMessage {
     ParameterData(Addr, protobuf::ygw::ParameterData),
     LinkStatus(Addr, protobuf::ygw::LinkStatus),
     LinkCommand(Addr, protobuf::ygw::LinkCommand),
+    ///message sent from Yamcs to YGW with new values for parameters
     ParameterUpdates(Addr, protobuf::ygw::ParameterUpdates),
 }
 
@@ -94,16 +95,9 @@ impl EncodedMessageBuilder {
         EncodedMessage(self.0.freeze())
     }
 
-    fn put_time(&mut self, time: SystemTime) {
-        let d = time.duration_since(SystemTime::UNIX_EPOCH).unwrap();
-        let (seconds, nanos) = if d.as_secs() >= i64::MAX as u64 {
-            (i64::MAX, 0)
-        } else {
-            (d.as_secs() as i64, d.subsec_nanos())
-        };
-    
-        self.0.put_i64(seconds);
-        self.0.put_u32(nanos);
+    fn put_time(&mut self, time: &ygw::Timestamp) {
+        self.0.put_i64(time.millis);
+        self.0.put_u32(time.picos);
     }
 
     fn put(&mut self, buf: &[u8]) {
@@ -115,7 +109,7 @@ impl EncodedMessageBuilder {
 #[derive(Debug, PartialEq)]
 pub struct TmPacket {
     pub data: Vec<u8>,
-    pub acq_time: SystemTime,
+    pub acq_time: ygw::Timestamp,
 }
 
 impl YgwMessage {
@@ -126,7 +120,7 @@ impl YgwMessage {
         match self {
             YgwMessage::TmPacket(addr, tm) => {
                 let mut emb = EncodedMessageBuilder::new(tm.data.len() + 12, rn, MessageType::Tm, *addr);
-                emb.put_time(tm.acq_time);
+                emb.put_time(&tm.acq_time);
                 emb.put(&tm.data[..]);
                 emb.build()
             }
@@ -140,6 +134,9 @@ impl YgwMessage {
             }
             YgwMessage::LinkStatus(addr, link_status) => {
                 encode_message(rn, addr, MessageType::LinkStatus, link_status)
+            }
+            YgwMessage::CommandDefinitions(addr, cmd_defs) => {
+                encode_message(rn, addr, MessageType::CommandDefinitions, cmd_defs)
             }
 
             _ => unreachable!("Cannot encode message {:?}", self),

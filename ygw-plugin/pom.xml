@@ -19,7 +19,7 @@
 	</developers>
 
 	<properties>
-		<yamcs.version>5.9.5-SNAPSHOT</yamcs.version>
+		<yamcs.version>5.9.8-SNAPSHOT</yamcs.version>
 		<quickbuf.version>1.4</quickbuf.version>
 		<quickbuf.options>indent=4,allocation=lazy,extensions=embedded</quickbuf.options>
 	</properties>

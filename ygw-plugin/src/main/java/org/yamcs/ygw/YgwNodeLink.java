@@ -177,6 +177,13 @@ public class YgwNodeLink extends AbstractTcTmParamLink {
         }
     }
 
+    public YgwNodeLink getSublink(int linkId) {
+        if (linkId == 0) {
+            return this;
+        }
+        return subLinks.get(linkId);
+    }
+
     public void processLinkStatus(int linkId, LinkStatus lstatus) {
         if (linkId != this.linkId) {
             var subLink = subLinks.get(linkId);
@@ -222,14 +229,13 @@ public class YgwNodeLink extends AbstractTcTmParamLink {
         }
 
         byte[] binary = pc.getBinary();
-        if (!pc.disablePostprocessing()) {
+        if (binary != null && !pc.disablePostprocessing()) {
             binary = cmdPostProcessor.process(pc);
             if (binary == null) {
                 log.warn("command postprocessor did not process the command");
             }
+            pc.setBinary(binary);
         }
-
-        pc.setBinary(binary);
 
         var protoPc = ProtoConverter.toProto(pc);
 
