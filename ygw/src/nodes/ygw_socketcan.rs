@@ -155,8 +155,12 @@ async fn on_can_msg(
 ) -> Result<()> {
     match data {
         Ok(frame) => {
+            let mut data = Vec::with_capacity(4+frame.data().len());
+            data.extend_from_slice(&frame.id_word().to_be_bytes());
+            data.extend_from_slice(frame.data());
+
             let pkt = TmPacket {
-                data: frame.data().to_vec(),
+                data,
                 acq_time: protobuf::now(),
             };
 
