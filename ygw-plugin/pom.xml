@@ -3,14 +3,28 @@
 	xsi:schemaLocation="http://maven.apache.org/POM/4.0.0 http://maven.apache.org/maven-v4_0_0.xsd">
 	<modelVersion>4.0.0</modelVersion>
 	<groupId>org.yamcs</groupId>
-	<artifactId>ygw-plugin</artifactId>
+	<artifactId>yamcs-ygw</artifactId>
 	<packaging>jar</packaging>
-	<version>1.0-SNAPSHOT</version>
-	<name>ygw-plugin</name>
+	<version>0.1.0-SNAPSHOT</version>
+	<name>Yamcs gateway link</name>
 	<url>http://yamcs.org</url>
 	<description>
 		Plugin for connecting Yamcs to the Yamcs gateway.
 	</description>
+	<licenses>
+		<license>
+			<name>GNU Affero General Public License (AGPL)</name>
+			<url>https://www.gnu.org/licenses/agpl-3.0.html</url>
+		</license>
+	</licenses>
+
+	<scm>
+		<connection>scm:git:git@github.com:xpromache/yamcs-gateway.git</connection>
+		<developerConnection>scm:git:ssh@github.com:xpromache/yamcs-gateway.git</developerConnection>
+		<url>https://github.com/xpromache/yamcs-gateway</url>
+		<tag>HEAD</tag>
+	</scm>
+
 	<developers>
 		<developer>
 			<id>xpromache</id>
@@ -18,8 +32,9 @@
 		</developer>
 	</developers>
 
+
 	<properties>
-		<yamcs.version>5.9.8-SNAPSHOT</yamcs.version>
+		<yamcs.version>5.10.1</yamcs.version>
 		<quickbuf.version>1.4</quickbuf.version>
 		<quickbuf.options>indent=4,allocation=lazy,extensions=embedded</quickbuf.options>
 	</properties>
@@ -55,7 +70,7 @@
 				<artifactId>maven-compiler-plugin</artifactId>
 				<version>3.12.1</version>
 				<configuration>
-					<release>11</release>
+					<release>17</release>
 				</configuration>
 			</plugin>
 
@@ -99,7 +114,109 @@
 					</execution>
 				</executions>
 			</plugin>
-
+			<plugin>
+				<groupId>org.apache.maven.plugins</groupId>
+				<artifactId>maven-javadoc-plugin</artifactId>
+				<version>3.6.3</version>
+				<configuration>
+					<release>17</release>
+					<author>false</author>
+					<breakiterator>true</breakiterator>
+					<additionalOptions>
+						<additionalOption>-Xdoclint:none</additionalOption>
+						<additionalOption>-Xdoclint:html</additionalOption>
+						<additionalOption>-Xdoclint:reference</additionalOption>
+					</additionalOptions>
+					<excludePackageNames>org.yamcs.ygw.protobuf</excludePackageNames>
+				</configuration>
+			</plugin>
 		</plugins>
 	</build>
+
+	<distributionManagement>
+		<snapshotRepository>
+			<id>ossrh</id>
+			<url>https://oss.sonatype.org/content/repositories/snapshots</url>
+		</snapshotRepository>
+		<repository>
+			<id>ossrh</id>
+			<url>https://oss.sonatype.org/service/local/staging/deploy/maven2/</url>
+		</repository>
+	</distributionManagement>
+
+	<profiles>
+		<profile>
+			<id>yamcs-release</id>
+			<build>
+				<plugins>
+					<plugin>
+						<groupId>org.apache.maven.plugins</groupId>
+						<artifactId>maven-source-plugin</artifactId>
+						<version>3.3.1</version>
+						<executions>
+							<execution>
+								<id>attach-sources</id>
+								<goals>
+									<goal>jar-no-fork</goal>
+								</goals>
+							</execution>
+						</executions>
+					</plugin>
+
+					<plugin>
+						<groupId>org.apache.maven.plugins</groupId>
+						<artifactId>maven-gpg-plugin</artifactId>
+						<version>3.2.2</version>
+						<executions>
+							<execution>
+								<id>sign-artifacts</id>
+								<phase>verify</phase>
+								<goals>
+									<goal>sign</goal>
+								</goals>
+							</execution>
+						</executions>
+					</plugin>
+					<plugin>
+						<groupId>org.sonatype.plugins</groupId>
+						<artifactId>nexus-staging-maven-plugin</artifactId>
+						<version>1.6.13</version>
+						<extensions>true</extensions>
+						<configuration>
+							<serverId>ossrh</serverId>
+							<nexusUrl>https://oss.sonatype.org/</nexusUrl>
+							<autoReleaseAfterClose>false</autoReleaseAfterClose>
+						</configuration>
+					</plugin>
+					<plugin>
+						<groupId>org.apache.maven.plugins</groupId>
+						<artifactId>maven-javadoc-plugin</artifactId>
+						<version>3.6.3</version>
+						<executions>
+							<execution>
+								<id>attach-javadocs</id>
+								<goals>
+									<goal>jar</goal>
+								</goals>
+							</execution>
+						</executions>
+						<configuration>
+							<release>17</release>
+							<author>false</author>
+							<breakiterator>true</breakiterator>
+							<links>
+								<link>
+									https://docs.yamcs.org/javadoc/yamcs/latest/</link>
+							</links>
+							<additionalOptions>
+								<additionalOption>-Xdoclint:none</additionalOption>
+								<additionalOption>-Xdoclint:html</additionalOption>
+								<additionalOption>-Xdoclint:reference</additionalOption>
+							</additionalOptions>
+						</configuration>
+					</plugin>
+				</plugins>
+			</build>
+		</profile>
+	</profiles>
 </project>

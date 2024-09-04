@@ -34,7 +34,10 @@ dataLinks:
     tcStream: "tc_realtime"
     tmStream: "tm_realtime"
     ppStream: "pp_realtime"
-    #packetPreprocessorClassName: org.yamcs.tctm.IssPacketPreprocessor
+    packetPreprocessorClassName: org.yamcs.tctm.GenericPacketPreprocessor
+    packetPreprocessorArgs:
+      timestampOffset: -1
+      seqCountOffset: -1
     
 mdb:
   # Valid loaders are: sheet, xtce or fully qualified name of the class

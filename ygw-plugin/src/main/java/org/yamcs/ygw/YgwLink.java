@@ -106,6 +106,12 @@ public class YgwLink extends AbstractLink implements AggregatedDataLink {
                 .withDescription("The processor providing parameter updates. "
                         + "A SoftwareParameter manager for the configured data source will be registered in this processor");
 
+        spec.addOption("commandPostprocessorClassName", OptionType.STRING);
+        spec.addOption("commandPostprocessorArgs", OptionType.MAP).withSpec(Spec.ANY);
+
+        spec.addOption("packetPreprocessorClassName", OptionType.STRING);
+        spec.addOption("packetPreprocessorArgs", OptionType.MAP).withSpec(Spec.ANY);
+        spec.addOption("updateSimulationTime", OptionType.BOOLEAN).withDefault(false);
         return spec;
 
     }

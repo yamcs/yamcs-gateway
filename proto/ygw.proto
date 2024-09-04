@@ -1,4 +1,7 @@
 //! This file defines messages exchanged between Yamcs and Yamcs Gateway
+//!
+//! The messages are exchanged via TCP, each message being preceded by its size.
+//!
 
 syntax="proto2";
 
