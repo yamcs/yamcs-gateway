@@ -4,11 +4,16 @@ use bytes::{Buf, BufMut, Bytes, BytesMut};
 use prost::Message;
 
 use crate::{
-    protobuf::{self, ygw::{self, MessageType}},
+    protobuf::{
+        self,
+        ygw::{self, MessageType},
+    },
     Result, YgwError,
 };
 
 const VERSION: u8 = 0;
+
+pub const ACKNOWLEDGE_SENT_KEY: &str = "Acknowledge_Sent_YGW";
 
 #[derive(Debug, Clone, Copy, PartialEq)]
 pub struct Addr {
@@ -30,15 +35,25 @@ impl Addr {
 // messages exchanged on the internal channels
 #[derive(Debug, PartialEq)]
 pub enum YgwMessage {
+    // Sent from YGW to Yamcs at startup
     ParameterDefinitions(Addr, protobuf::ygw::ParameterDefinitionList),
+    // Sent from YGW to Yamcs at startup
     CommandDefinitions(Addr, protobuf::ygw::CommandDefinitionList),
+    // Sent from YGW to Yamcs
     TmPacket(Addr, TmPacket),
+    // Sent from Yamcs to YGW
     TcPacket(Addr, protobuf::ygw::PreparedCommand),
+    // Sent from YGW to Yamcs
+    TcAck(Addr, protobuf::ygw::CommandAck),
+    // Sent from YGW to Yamcs
     Event(Addr, protobuf::ygw::Event),
+    // Sent from YGW to Yamcs
     ParameterData(Addr, protobuf::ygw::ParameterData),
+    // Sent from YGW to Yamcs
     LinkStatus(Addr, protobuf::ygw::LinkStatus),
+    // Sent from Yamcs to YGW
     LinkCommand(Addr, protobuf::ygw::LinkCommand),
-    ///message sent from Yamcs to YGW with new values for parameters
+    // Sent from Yamcs to YGW with new values for parameters
     ParameterUpdates(Addr, protobuf::ygw::ParameterUpdates),
 }
 
@@ -103,7 +118,6 @@ impl EncodedMessageBuilder {
     fn put(&mut self, buf: &[u8]) {
         self.0.put(buf);
     }
-    
 }
 
 #[derive(Debug, PartialEq)]
@@ -113,13 +127,11 @@ pub struct TmPacket {
 }
 
 impl YgwMessage {
-    /// encode a message to a BytesMut
-    /// the first 4 bytes will be the data length
-    /// then 8 bytes recording number
     pub(crate) fn encode(&self, rn: u64) -> EncodedMessage {
         match self {
             YgwMessage::TmPacket(addr, tm) => {
-                let mut emb = EncodedMessageBuilder::new(tm.data.len() + 12, rn, MessageType::Tm, *addr);
+                let mut emb =
+                    EncodedMessageBuilder::new(tm.data.len() + 12, rn, MessageType::Tm, *addr);
                 emb.put_time(&tm.acq_time);
                 emb.put(&tm.data[..]);
                 emb.build()
@@ -137,6 +149,9 @@ impl YgwMessage {
             }
             YgwMessage::CommandDefinitions(addr, cmd_defs) => {
                 encode_message(rn, addr, MessageType::CommandDefinitions, cmd_defs)
+            }
+            YgwMessage::TcAck(addr, cmd_ack) => {
+                encode_message(rn, addr, MessageType::TcAck, cmd_ack)
             }
 
             _ => unreachable!("Cannot encode message {:?}", self),
@@ -225,11 +240,10 @@ pub(crate) fn encode_node_info(node_list: &protobuf::ygw::NodeList) -> EncodedMe
     let mut buf = BytesMut::with_capacity(len);
 
     buf.put_u32(len as u32);
-    buf.put_u64(0); //rn
     buf.put_u8(VERSION);
+    buf.put_u64(0); //rn
     buf.put_u8(MessageType::NodeInfo as u8);
     node_list.encode_raw(&mut buf);
 
     EncodedMessage(buf.freeze())
 }
-

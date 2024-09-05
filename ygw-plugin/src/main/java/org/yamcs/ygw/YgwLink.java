@@ -22,6 +22,7 @@ import org.yamcs.tctm.AbstractLink;
 import org.yamcs.tctm.AggregatedDataLink;
 import org.yamcs.tctm.Link;
 import org.yamcs.xtce.DataSource;
+import org.yamcs.ygw.protobuf.Ygw.CommandAck;
 import org.yamcs.ygw.protobuf.Ygw.CommandDefinitionList;
 import org.yamcs.ygw.protobuf.Ygw.Event;
 import org.yamcs.ygw.protobuf.Ygw.LinkStatus;
@@ -337,6 +338,8 @@ public class YgwLink extends AbstractLink implements AggregatedDataLink {
                     processParameterDefs(buf);
                 } else if (type == MessageType.COMMAND_DEFINITIONS_VALUE) {
                     processCommandDefs(buf);
+                } else if (type == MessageType.TC_ACK_VALUE) {
+                    processTcAck(buf);
                 } else {
                     log.warn("message of type {} not implemented", type);
                 }
@@ -479,6 +482,37 @@ public class YgwLink extends AbstractLink implements AggregatedDataLink {
             log.debug("Got command definitions {}", cdefs);
 
             cmdMgr.addCommandDefs(mdbPath, cdefs, link);
+        }
+
+        /**
+         * Called when a TC ACK definition message is received from YGW.
+         * 
+         */
+        private void processTcAck(ByteBuf buf) {
+            int nodeId = buf.readInt();
+            int linkId = buf.readInt();
+
+            YgwNodeLink node = nodes.get(nodeId);
+            if (node == null) {
+                log.warn("Got message for unknown node {}", nodeId);
+                return;
+            }
+            YgwNodeLink link = node.getSublink(linkId);
+            if (link == null) {
+                log.warn("Got message for unknown node/link {}/{}", nodeId, linkId);
+                return;
+            }
+            CommandAck cmdAck;
+
+            try {
+                cmdAck = ProtoBufUtils.fromByteBuf(buf, CommandAck.newInstance());
+            } catch (InvalidProtocolBufferException e) {
+                log.warn("Failed to decode parameter definition", e);
+                return;
+            }
+            log.debug("Got command definitions {}", cmdAck);
+
+            node.processCommandAck(linkId, cmdAck);
         }
 
         public boolean isConnected() {

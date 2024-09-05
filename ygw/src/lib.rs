@@ -17,8 +17,9 @@ pub mod utc_converter;
 use std::sync::atomic::AtomicU32;
 
 use async_trait::async_trait;
-use msg::{Addr, YgwMessage};
+use msg::{Addr, YgwMessage, ACKNOWLEDGE_SENT_KEY};
 
+use protobuf::ygw::{command_ack::AckStatus, CommandId};
 use thiserror::Error;
 use tokio::sync::mpsc::{Receiver, Sender};
 
@@ -59,9 +60,15 @@ pub enum YgwError {
     #[error("command error: {0}")]
     CommandError(String),
 
+    #[error("{0}")]
+    Generic(String),
+
     #[cfg(feature = "socketcan")]
     #[error(transparent)]
     SocketCanError(#[from] socketcan::Error),
+
+    #[error("Cannot resolve: {0}: {1}")]
+    Unresolvable(String, u16),
 
     #[error("{0}")]
     Other(#[from] Box<dyn std::error::Error + Send + Sync>),
@@ -106,8 +113,8 @@ pub struct YgwLinkNodeProperties {
 
 #[derive(Clone, Debug)]
 pub struct Link {
-    id: u32,
-    props: YgwLinkNodeProperties,
+    pub id: u32,
+    pub props: YgwLinkNodeProperties,
 }
 impl Link {
     fn to_proto(&self) -> protobuf::ygw::Link {
@@ -183,6 +190,49 @@ impl LinkStatus {
             .await
             .map_err(|_| YgwError::ServerShutdown)
     }
+}
+
+
+
+pub async fn ack_command(
+    tx: &mut Sender<YgwMessage>,
+    link_addr: Addr,
+    command_id: CommandId,
+    message: Option<String>,
+) -> Result<()> {
+    let ack = protobuf::ygw::CommandAck {
+        command_id: command_id,
+        ack: AckStatus::Ok as i32,
+        key: ACKNOWLEDGE_SENT_KEY.into(),
+        time: protobuf::now(),
+        message: message,
+        return_pv: None,
+    };
+
+    tx.send(YgwMessage::TcAck(link_addr, ack))
+        .await
+        .map_err(|_| YgwError::ServerShutdown)
+}
+
+
+pub async fn nack_command(
+    tx: &mut Sender<YgwMessage>,
+    link_addr: Addr,
+    command_id: CommandId,
+    message: String,
+) -> Result<()> {
+    let ack = protobuf::ygw::CommandAck {
+        command_id: command_id,
+        ack: AckStatus::Nok as i32,
+        key: ACKNOWLEDGE_SENT_KEY.into(),
+        time: protobuf::now(),
+        message: Some(message),
+        return_pv: None,
+    };
+
+    tx.send(YgwMessage::TcAck(link_addr, ack))
+        .await
+        .map_err(|_| YgwError::ServerShutdown)
 }
 
 pub fn generate_pids(num_pids: u32) -> u32 {

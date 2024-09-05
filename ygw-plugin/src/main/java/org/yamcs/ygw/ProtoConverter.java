@@ -2,6 +2,7 @@ package org.yamcs.ygw;
 
 import java.util.Map.Entry;
 
+import org.yamcs.cmdhistory.CommandHistoryPublisher.AckStatus;
 import org.yamcs.commanding.ArgumentValue;
 import org.yamcs.commanding.PreparedCommand;
 import org.yamcs.protobuf.Commanding.CommandId;
@@ -9,6 +10,7 @@ import org.yamcs.time.TimeService;
 import org.yamcs.xtce.Argument;
 import org.yamcs.ygw.protobuf.Ygw.AggregateValue;
 import org.yamcs.ygw.protobuf.Ygw.ArrayValue;
+
 import org.yamcs.ygw.protobuf.Ygw.CommandAssignment;
 import org.yamcs.ygw.protobuf.Ygw.EnumeratedValue;
 import org.yamcs.ygw.protobuf.Ygw.Event;
@@ -30,7 +32,6 @@ public class ProtoConverter {
         }
 
         return qpc;
-
     }
 
     static org.yamcs.ygw.protobuf.Ygw.CommandId toProto(CommandId cmdId) {
@@ -42,6 +43,17 @@ public class ProtoConverter {
             qcmdId.setCommandName(cmdId.getCommandName());
         }
         return qcmdId;
+    }
+
+    static CommandId fromProto(org.yamcs.ygw.protobuf.Ygw.CommandId cmdId) {
+        var cmdIdb = CommandId.newBuilder().setGenerationTime(cmdId.getGenerationTime())
+                .setOrigin(cmdId.getOrigin()).setSequenceNumber(cmdId.getSequenceNumber());
+
+        if (cmdId.hasCommandName()) {
+            cmdIdb.setCommandName(cmdId.getCommandName());
+        }
+
+        return cmdIdb.build();
     }
 
     static CommandAssignment toProto(String argName, ArgumentValue argValue) {
@@ -167,5 +179,19 @@ public class ProtoConverter {
 
     public static Timestamp toProtoTimestamp(long instant) {
         return Timestamp.newInstance().setMillis(instant - 37000);
+    }
+
+    public static AckStatus fromProto(org.yamcs.ygw.protobuf.Ygw.CommandAck.AckStatus ackStatus) {
+        return switch (ackStatus) {
+        case NA -> AckStatus.NA;
+        case CANCELLED -> AckStatus.CANCELLED;
+        case DISABLED -> AckStatus.DISABLED;
+        case NOK -> AckStatus.NOK;
+        case OK -> AckStatus.OK;
+        case PENDING -> AckStatus.PENDING;
+        case SCHEDULED -> AckStatus.SCHEDULED;
+        case TIMEOUT -> AckStatus.TIMEOUT;
+        default -> throw new IllegalArgumentException("Unexpected value: " + ackStatus);
+        };
     }
 }

@@ -15,6 +15,7 @@ import org.yamcs.parameter.ParameterValue;
 import org.yamcs.tctm.AbstractTcTmParamLink;
 import org.yamcs.tctm.AggregatedDataLink;
 import org.yamcs.utils.TimeEncoding;
+import org.yamcs.ygw.protobuf.Ygw.CommandAck;
 import org.yamcs.ygw.protobuf.Ygw.LinkStatus;
 import org.yamcs.ygw.protobuf.Ygw.MessageType;
 import org.yamcs.ygw.protobuf.Ygw.Node;
@@ -254,6 +255,14 @@ public class YgwNodeLink extends AbstractTcTmParamLink {
         return true;
     }
 
+    public void processCommandAck(int linkId, CommandAck cmdAck) {
+        var cmdId = ProtoConverter.fromProto(cmdAck.getCommandId());
+        var time = ProtoConverter.fromProtoMillis(cmdAck.getTime());
+        var ack = ProtoConverter.fromProto(cmdAck.getAck());
+        commandHistoryPublisher.publishAck(cmdId, cmdAck.getKey(), time, ack,
+                cmdAck.getMessage());
+    }
+
     @Override
     public AggregatedDataLink getParent() {
         return ygwLink;
@@ -270,4 +279,5 @@ public class YgwNodeLink extends AbstractTcTmParamLink {
     public boolean isParameterDataLinkImplemented() {
         return true;
     }
+
 }

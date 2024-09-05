@@ -1100,7 +1100,7 @@ dependencies = [
 
 [[package]]
 name = "ygw"
-version = "0.1.0"
+version = "0.2.1"
 dependencies = [
  "async-trait",
  "byteorder",
@@ -1123,7 +1123,7 @@ dependencies = [
 
 [[package]]
 name = "ygw-macros"
-version = "0.1.0"
+version = "0.2.0"
 dependencies = [
  "proc-macro2",
  "quote",
