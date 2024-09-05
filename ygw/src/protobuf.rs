@@ -49,6 +49,14 @@ impl From<u32> for Value {
     }
 }
 
+impl From<i32> for Value {
+    fn from(item: i32) -> Self {
+        Value {
+            v: Some(value::V::Sint32Value(item)),
+        }
+    }
+}
+
 impl From<u64> for Value {
     fn from(item: u64) -> Self {
         Value {
@@ -57,6 +65,13 @@ impl From<u64> for Value {
     }
 }
 
+impl From<i64> for Value {
+    fn from(item: i64) -> Self {
+        Value {
+            v: Some(value::V::Sint64Value(item)),
+        }
+    }
+}
 impl From<bool> for Value {
     fn from(item: bool) -> Self {
         Value {
@@ -120,7 +135,6 @@ impl TryFrom<Value> for Vec<u8> {
         }
     }
 }
-
 
 impl TryFrom<Value> for i32 {
     type Error = YgwError;
