@@ -195,30 +195,15 @@ public class YgwLink extends AbstractLink implements AggregatedDataLink {
 
     @Override
     public void doDisable() {
-        doStop();
+        getEventLoop().execute(() -> {
+            if (handler != null) {
+                handler.stop();
+            }
+        });
     }
 
     @Override
     public void doEnable() {
-        doStart();
-    }
-
-    @Override
-    public String getName() {
-        return linkName;
-    }
-
-    @Override
-    protected Status connectionStatus() {
-        var _handler = handler;
-        if (_handler == null) {
-            return Status.UNAVAIL;
-        }
-        return _handler.isConnected() ? Status.OK : Status.UNAVAIL;
-    }
-
-    @Override
-    protected void doStart() {
         YamcsServerInstance ysi = YamcsServer.getServer().getInstance(yamcsInstance);
         Processor processor = ysi.getProcessor(parameterProcessorName);
 
@@ -240,20 +225,35 @@ public class YgwLink extends AbstractLink implements AggregatedDataLink {
                     "There is already a different parameter manager registered for the source " + dataSource));
             return;
         }
-        cmdMgr = new YgwCommandManager(this, processor, yamcsInstance);
-
+        if (cmdMgr == null) {
+            cmdMgr = new YgwCommandManager(this, processor, yamcsInstance);
+        }
         getEventLoop().execute(() -> connect());
+    }
 
+    @Override
+    public String getName() {
+        return linkName;
+    }
+
+    @Override
+    protected Status connectionStatus() {
+        var _handler = handler;
+        if (_handler == null) {
+            return Status.UNAVAIL;
+        }
+        return _handler.isConnected() ? Status.OK : Status.UNAVAIL;
+    }
+
+    @Override
+    protected void doStart() {
+        doEnable();
         notifyStarted();
     }
 
     @Override
     protected void doStop() {
-        getEventLoop().execute(() -> {
-            if (handler != null) {
-                handler.stop();
-            }
-        });
+        doDisable();
         notifyStopped();
     }
 

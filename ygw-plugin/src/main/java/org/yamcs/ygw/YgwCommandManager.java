@@ -69,7 +69,7 @@ public class YgwCommandManager implements StreamSubscriber {
             try {
                 ydb.execute("create stream " + streamName + StandardTupleDefinitions.TC.getStringDefinition());
             } catch (StreamSqlException | ParseException e) {
-                throw new ConfigurationException("Cannto create stream");
+                throw new ConfigurationException("Cannto create stream: " + e);
             }
             var stream = ydb.getStream(streamName);
             stream.addSubscriber(this);
