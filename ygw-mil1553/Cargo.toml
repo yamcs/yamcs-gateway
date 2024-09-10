@@ -1,0 +1,16 @@
+[package]
+name = "ygw-mil1553"
+version = "0.2.0"
+edition = "2021"
+license = "MIT"
+description = "The goal of Yamcs Gateway is to allow Yamcs to control instruments/payloads as part of an EGSE. This crate contains MIL1553 hardware interface that can be implemented for different hardware in order to be usable in the Yamcs Gateway"
+homepage = "https://github.com/xpromache/yamcs-gateway"
+repository = "https://github.com/xpromache/yamcs-gateway"
+keywords = ["Yamcs", "EGSE", "Satellite", "Spacecraft"]
+categories = ["aerospace"]
+
+[dependencies]
+bitflags = "2.4.1"
+env_logger = "0.11"
+log = "0.4"
+thiserror = "1"
