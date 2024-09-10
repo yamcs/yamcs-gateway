@@ -83,8 +83,11 @@ pub enum YgwError {
 pub trait YgwNode: Send {
     /// the properties of the node - will be communicated to Yamcs
     fn properties(&self) -> &YgwLinkNodeProperties;
+
     /// the list of sub links - will also be communicated to Yamcs
-    fn sub_links(&self) -> &[Link];
+    fn sub_links(&self) -> &[Link] {
+        &[]
+    }
 
     /// method called by the ygw server to run the node
     /// tx and rx are used to communicate between the node and the server
@@ -192,8 +195,6 @@ impl LinkStatus {
     }
 }
 
-
-
 pub async fn ack_command(
     tx: &mut Sender<YgwMessage>,
     link_addr: Addr,
@@ -213,7 +214,6 @@ pub async fn ack_command(
         .await
         .map_err(|_| YgwError::ServerShutdown)
 }
-
 
 pub async fn nack_command(
     tx: &mut Sender<YgwMessage>,

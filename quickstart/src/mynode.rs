@@ -40,9 +40,7 @@ impl YgwNode for MyNode {
         &self.props
     }
 
-    fn sub_links(&self) -> &[Link] {
-        &[]
-    }
+   
 
     async fn run(
         &mut self,
