@@ -43,7 +43,7 @@ impl YgwNode for MyNode {
    
 
     async fn run(
-        &mut self,
+        mut self: Box<Self>,
         node_id: u32,
         tx: Sender<YgwMessage>,
         mut rx: Receiver<YgwMessage>,

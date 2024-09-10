@@ -38,7 +38,7 @@ impl YgwNode for TmUdpNode {
     }
 
     async fn run(
-        &mut self,
+        self: Box<Self>,
         node_id: u32,
         tx: Sender<YgwMessage>,
         mut _rx: Receiver<YgwMessage>,

@@ -2,6 +2,7 @@ pub mod mil1553dev;
 use bitflags::bitflags;
 use mil1553dev::MsgId;
 use thiserror::Error;
+use ygw::YgwError;
 
 /// maximum number of words (u16) in a MIL-1553 message
 pub const MAX_DATA_SIZE: usize = 32;
@@ -24,6 +25,11 @@ pub enum Mil1553Error {
     InvalidState(String),
 }
 
+impl From<Mil1553Error> for YgwError {
+    fn from(value: Mil1553Error) -> Self {
+        YgwError::Other(Box::new(value))
+    }
+}
 pub type Result<T> = std::result::Result<T, Mil1553Error>;
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]

@@ -47,7 +47,7 @@ impl YgwNode for CanNode {
     }
 
     async fn run(
-        &mut self,
+        mut self: Box<Self>,
         node_id: u32,
         tx: Sender<YgwMessage>,
         rx: Receiver<YgwMessage>,

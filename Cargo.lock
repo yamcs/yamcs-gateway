@@ -433,16 +433,6 @@ dependencies = [
 ]
 
 [[package]]
-name = "mil1553"
-version = "0.2.0"
-dependencies = [
- "bitflags 2.4.2",
- "env_logger",
- "log",
- "thiserror",
-]
-
-[[package]]
 name = "miniz_oxide"
 version = "0.7.2"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -1138,6 +1128,17 @@ dependencies = [
  "proc-macro2",
  "quote",
  "syn 2.0.52",
+]
+
+[[package]]
+name = "ygw-mil1553"
+version = "0.2.0"
+dependencies = [
+ "bitflags 2.4.2",
+ "env_logger",
+ "log",
+ "thiserror",
+ "ygw",
 ]
 
 [[package]]

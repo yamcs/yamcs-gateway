@@ -28,7 +28,7 @@ impl YgwNode for TcUdpNode {
         &[]
     }
 
-    async fn run(&mut self, node_id: u32, tx: Sender<YgwMessage>, mut rx: Receiver<YgwMessage>)  -> Result<()> {
+    async fn run(self: Box<Self>, node_id: u32, tx: Sender<YgwMessage>, mut rx: Receiver<YgwMessage>)  -> Result<()> {
         let addr = Addr::new(node_id, 0);
 
         let mut link_status = LinkStatus::new(addr);

@@ -124,7 +124,7 @@ impl Server {
         let socket = TcpListener::bind(self.addr).await?;
         let addr = socket.local_addr()?;
 
-        for mut node in self.nodes.drain(..) {
+        for node in self.nodes.drain(..) {
             let props = node.properties();
             let (tx, rx) = tokio::sync::mpsc::channel(100);
             node_data.insert(node_id, NodeData::new(node_id, props, node.sub_links()));
@@ -724,7 +724,7 @@ mod tests {
         }
 
         async fn run(
-            &mut self,
+            self: Box<Self>,
             node_id: u32,
             tx: Sender<YgwMessage>,
             rx: Receiver<YgwMessage>,

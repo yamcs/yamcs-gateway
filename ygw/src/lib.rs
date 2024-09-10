@@ -93,7 +93,7 @@ pub trait YgwNode: Send {
     /// tx and rx are used to communicate between the node and the server
     /// the node_id is the id allocated to this node, it has to be used for all the messages sent to the server
     async fn run(
-        &mut self,
+        mut self: Box<Self>,
         node_id: u32,
         tx: Sender<YgwMessage>,
         mut rx: Receiver<YgwMessage>,
