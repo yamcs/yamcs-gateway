@@ -12,6 +12,7 @@ pub struct Schedule {
 }
 
 /// a message that is part of the schedule
+#[derive(Debug)]
 pub struct ScheduledMessage {
     /// id given by the user
     pub msg_id: MsgId,
@@ -46,7 +47,7 @@ pub struct FrameEntry {
     pub msg_id: MsgId,
 }
 
-
+#[derive(Debug)]
 pub enum MessageData {
     /// rt addr, sub_addr, data
     BcToRtMessage(RtAddr, RtAddr, Vec<u16>),
