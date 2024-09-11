@@ -1,4 +1,6 @@
 pub mod mil1553dev;
+use std::time::Duration;
+
 use bitflags::bitflags;
 use mil1553dev::MsgId;
 use thiserror::Error;
@@ -23,6 +25,8 @@ pub enum Mil1553Error {
     TooManyOpCodes(MsgId),
     #[error("invalid state: {0}")]
     InvalidState(String),
+    #[error("Frame too long: {0:?}")]
+    FrameTooLong(Duration),
 }
 
 impl From<Mil1553Error> for YgwError {
@@ -91,6 +95,7 @@ bitflags! {
         const TESTLOOP = 0x0000_0100;
     }
 }
+#[derive(Clone, Copy)]
 pub struct RtMessageId {
     pub id: u16,
     pub sub_addr: RtAddr,
@@ -101,7 +106,7 @@ pub struct RtMessageId {
 pub struct BusMessage {
     pub timetag: u64,
     cmdwrd: u16,
-    
+
     pub data: Vec<u16>,
 
     /// status received from the BC if any
