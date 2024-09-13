@@ -268,14 +268,17 @@ public class YgwNodeLink extends AbstractTcTmParamLink {
         return ygwLink;
     }
 
+    @Override
     public boolean isTmPacketDataLinkImplemented() {
         return tmEnabled;
     }
 
-    public boolean isTcPacketDataLinkImplemented() {
+    @Override
+    public boolean isTcDataLinkImplemented() {
         return tcEnabled;
     }
 
+    @Override
     public boolean isParameterDataLinkImplemented() {
         return true;
     }
