@@ -6,8 +6,10 @@ import org.yamcs.cmdhistory.CommandHistoryPublisher.AckStatus;
 import org.yamcs.commanding.ArgumentValue;
 import org.yamcs.commanding.PreparedCommand;
 import org.yamcs.protobuf.Commanding.CommandId;
+import org.yamcs.protobuf.Yamcs.Value.Type;
 import org.yamcs.time.TimeService;
 import org.yamcs.xtce.Argument;
+import org.yamcs.xtce.util.AggregateMemberNames;
 import org.yamcs.ygw.protobuf.Ygw.AggregateValue;
 import org.yamcs.ygw.protobuf.Ygw.ArrayValue;
 
@@ -134,8 +136,83 @@ public class ProtoConverter {
             return new org.yamcs.parameter.UInt32Value(qv.getUint32Value());
         } else if (qv.hasUint64Value()) {
             return new org.yamcs.parameter.UInt64Value(qv.getUint64Value());
+        } else if (qv.hasEnumeratedValue()) {
+            var pev = qv.getEnumeratedValue();
+            return new org.yamcs.parameter.EnumeratedValue(pev.getSint64Value(), pev.getStringValue());
+        } else if (qv.hasAggregateValue()) {
+            return fromProto(qv.getAggregateValue());
+        } else if (qv.hasArrayValue()) {
+            return fromProto(qv.getArrayValue());
         } else {
             throw new IllegalStateException("TODO " + qv);
+        }
+    }
+
+    private static org.yamcs.parameter.AggregateValue fromProto(AggregateValue aggregateValue) {
+        var names = aggregateValue.getName();
+        var values = aggregateValue.getValue();
+        if (names.length() != aggregateValue.getValue().length()) {
+            throw new IllegalArgumentException("Invalid aggregate value, name count different than value count");
+        }
+        String[] memberNames = new String[names.length()];
+        for (int i = 0; i < names.length(); i++) {
+            memberNames[i] = names.get(i);
+        }
+
+        AggregateMemberNames amn = AggregateMemberNames.get(memberNames);
+        var av = new org.yamcs.parameter.AggregateValue(amn);
+        for (int i = 0; i < names.length(); i++) {
+            av.setMemberValue(names.get(i), fromProto(values.get(i)));
+        }
+
+        return av;
+    }
+
+    private static org.yamcs.parameter.ArrayValue fromProto(ArrayValue arrayValue) {
+        var vlist = arrayValue.getValue();
+        if (vlist.length() == 0) {
+            return new org.yamcs.parameter.ArrayValue(new int[] { 0 }, Type.UINT32);// FIXME
+        }
+
+        Value v0 = vlist.get(0);
+        int n = vlist.length();
+        var av = new org.yamcs.parameter.ArrayValue(new int[] { n }, getType(v0));
+
+        for (int i = 0; i < n; i++) {
+            var vi = vlist.get(i);
+            if (getType(vi) != av.getElementType()) {
+                throw new IllegalArgumentException("Array elements have all to be of the same type");
+            }
+            av.setElementValue(i, fromProto(vi));
+        }
+        return av;
+    }
+
+    private static Type getType(Value qv) {
+        if (qv.hasBooleanValue()) {
+            return Type.BOOLEAN;
+        } else if (qv.hasDoubleValue()) {
+            return Type.DOUBLE;
+        } else if (qv.hasFloatValue()) {
+            return Type.FLOAT;
+        } else if (qv.hasSint32Value()) {
+            return Type.SINT32;
+        } else if (qv.hasSint64Value()) {
+            return Type.SINT64;
+        } else if (qv.hasStringValue()) {
+            return Type.STRING;
+        } else if (qv.hasUint32Value()) {
+            return Type.UINT32;
+        } else if (qv.hasUint64Value()) {
+            return Type.UINT64;
+        } else if (qv.hasEnumeratedValue()) {
+            return Type.ENUMERATED;
+        } else if (qv.hasAggregateValue()) {
+            return Type.AGGREGATE;
+        } else if (qv.hasArrayValue()) {
+            return Type.ARRAY;
+        } else {
+            throw new IllegalStateException("Unknown value type " + qv);
         }
     }
 
