@@ -289,6 +289,7 @@ pub fn now() -> Timestamp {
         .expect("Cannot use times before the unix epoch");
     let millis =
         since_the_epoch.as_secs() as i64 * 1000 + since_the_epoch.subsec_nanos() as i64 / 1_000_000;
+    let millis = millis + 37_000; //leap seconds FIXME
     let picos = (since_the_epoch.subsec_nanos() % 1_000_000) * 1000;
     Timestamp { millis, picos }
 }

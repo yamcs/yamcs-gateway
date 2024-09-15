@@ -250,8 +250,7 @@ public class ProtoConverter {
     }
 
     public static long fromProtoMillis(Timestamp t) {
-        // FIXME
-        return t.getMillis() + 37000;
+        return t.getMillis();
     }
 
     public static Timestamp toProtoTimestamp(long instant) {
