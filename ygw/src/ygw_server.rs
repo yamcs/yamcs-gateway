@@ -267,7 +267,7 @@ async fn encoder_task(
                         let enc_msg = msg.encode(rn);
                         if let Some(ref recorder_tx) = recorder_tx {
                             if let Err(e) = recorder_tx.send(enc_msg.clone()).await {
-                                log::warn!("Error sending data to recorder {:?}", e);
+                                log::warn!("Error sending data to recorder ");
                             }
                         }
                         send_data_to_all(&mut connections, enc_msg).await;
