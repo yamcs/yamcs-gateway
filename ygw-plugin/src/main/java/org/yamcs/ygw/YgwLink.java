@@ -79,7 +79,6 @@ public class YgwLink extends AbstractLink implements AggregatedDataLink {
         timeService = YamcsServer.getTimeService(instance);
         parameterProcessorName = config.getString("processor");
         this.dataSource = config.getEnum("dataSource", DataSource.class);
-
     }
 
     @Override
@@ -113,6 +112,9 @@ public class YgwLink extends AbstractLink implements AggregatedDataLink {
         spec.addOption("packetPreprocessorClassName", OptionType.STRING);
         spec.addOption("packetPreprocessorArgs", OptionType.MAP).withSpec(Spec.ANY);
         spec.addOption("updateSimulationTime", OptionType.BOOLEAN).withDefault(false);
+
+        spec.addOption("nodes", OptionType.MAP).withSpec(Spec.ANY)
+                .withDescription("This map can contain configuration overrides for the different nodes");
         return spec;
 
     }
@@ -149,21 +151,36 @@ public class YgwLink extends AbstractLink implements AggregatedDataLink {
         log.info("Received list of nodes from the gateway: {}", nodeList);
         sublinks.clear();
         nodes.clear();
+        var nodesConfig = config.getConfigOrEmpty("nodes");
 
         for (var node : nodeList.getNodes()) {
-            YgwNodeLink nl = new YgwNodeLink(this, node);
-            nl.init(yamcsInstance, linkName + "." + nl.name, config);
+            YgwNodeLink nodeLink = new YgwNodeLink(this, node);
 
-            sublinks.add(nl);
-            nodes.put(nl.nodeId, nl);
+            Map<String, Object> nodeConfigMap = new HashMap(nodesConfig.getConfigOrEmpty(node.getName()).getRoot());
+            config.getRoot().forEach((key, value) -> nodeConfigMap.putIfAbsent(key, value));
+            YConfiguration nodeConfig = YConfiguration.wrap(nodeConfigMap);
+            log.debug("Adding node {} with config", nodeConfig);
+
+            nodeLink.init(yamcsInstance, linkName + "." + nodeLink.name, nodeConfig);
+
+            sublinks.add(nodeLink);
+            nodes.put(nodeLink.nodeId, nodeLink);
+
+            for (var link : node.getLinks()) {
+                YgwNodeLink nodeSublink = new YgwNodeLink(this, nodeLink, link);
+
+                Map<String, Object> nodesubLinkConfigMap = new HashMap(
+                        nodeConfig.getConfigOrEmpty(link.getName()).getRoot());
+                nodeConfig.getRoot().forEach((key, value) -> nodesubLinkConfigMap.putIfAbsent(key, value));
+                YConfiguration nodesubLinkConfig = YConfiguration.wrap(nodesubLinkConfigMap);
+                String name = linkName + "." + nodeLink.name + "." + link.getName();
+                log.warn("Adding sublink {} with config", nodesubLinkConfig);
+                nodeSublink.init(yamcsInstance, name, nodesubLinkConfig);
+                nodeLink.addSublink(link.getId(), nodeSublink);
+            }
         }
         var linkManager = YamcsServer.getServer().getInstance(yamcsInstance).getLinkManager();
-
-        try {
-            linkManager.configureDataLink(this, config);
-        } catch (Exception e) {
-            e.printStackTrace();
-        }
+        linkManager.configureDataLink(this, config);
     }
 
     @Override

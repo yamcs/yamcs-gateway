@@ -283,4 +283,9 @@ public class YgwNodeLink extends AbstractTcTmParamLink {
         return true;
     }
 
+    public void addSublink(int linkId, YgwNodeLink nodeSublink) {
+        subLinks.put(linkId, nodeSublink);
+
+    }
+
 }
