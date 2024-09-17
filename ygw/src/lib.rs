@@ -193,6 +193,23 @@ impl LinkStatus {
             .await
             .map_err(|_| YgwError::ServerShutdown)
     }
+
+    /// send the status over the channel
+    pub fn blocking_send(&self, tx: &Sender<YgwMessage>) -> Result<()> {
+        tx.blocking_send(YgwMessage::LinkStatus(self.addr, self.inner.clone()))
+            .map_err(|_| YgwError::ServerShutdown)
+    }
+
+    pub fn addr(&self) -> Addr {
+        self.addr
+    }
+    pub fn data_in_count(&self) -> u64 {
+        self.inner.data_in_count
+    }
+
+    pub fn data_out_count(&self) -> u64 {
+        self.inner.data_out_count
+    }
 }
 
 pub async fn ack_command(
