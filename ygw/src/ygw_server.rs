@@ -503,7 +503,7 @@ async fn reader_task(
                 //also if the socket closes in the middle of a message
                 log::warn!("Error reading from {}: {:?}", addr, e);
                 let _ = ctrl_tx.send(CtrlMessage::YamcsConnectionClosed(addr)).await;
-                return Err(YgwError::IOError(e));
+                return Err(YgwError::IOError(format!("Error reading from {addr}"), e));
             }
             None => {
                 log::info!("Yamcs connection {} closed", addr);

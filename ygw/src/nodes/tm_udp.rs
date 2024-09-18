@@ -70,7 +70,7 @@ impl YgwNode for TmUdpNode {
                         },
                         Err(err) => {
                             log::warn!("Error receiving data from UDP socket: {:?}", err);
-                            return Err(YgwError::IOError(err));
+                            return Err(YgwError::IOError("Error receiving data from UDP socket".into(), err));
                         }
                     }
 
@@ -90,7 +90,9 @@ impl TmUdpNode {
         addr: SocketAddr,
         initial_bytes_to_strip: usize,
     ) -> Result<Self> {
-        let socket = UdpSocket::bind(addr).await?;
+        let socket = UdpSocket::bind(addr)
+            .await
+            .map_err(|e| YgwError::Generic(format!("Failed to bind to {}: {}", addr, e)))?;
 
         Ok(Self {
             socket,

@@ -128,7 +128,11 @@ impl<'a> FileRecorder<'_> {
     ) -> Result<Self> {
         assert!(max_num_segments < MAX_SEGMENTS_PER_FILE);
 
-        let mut file = OpenOptions::new().create(true).write(true).open(path)?;
+        let mut file = OpenOptions::new()
+            .create(true)
+            .write(true)
+            .open(path)
+            .map_err(|e| YgwError::IOError(format!("Error opening {}", path.display()), e))?;
 
         file.write_all(&MAGIC)?;
         file.write_u8(FORMAT_VERSION)?;
@@ -138,7 +142,11 @@ impl<'a> FileRecorder<'_> {
         file.write_all(&zeros)?;
         file.sync_data()?;
 
-        let f = OpenOptions::new().append(true).open(path)?;
+        let f = OpenOptions::new()
+            .append(true)
+            .open(path)
+            .map_err(|e| YgwError::IOError(format!("Error opening {}", path.display()), e))?;
+
         let encoder = Some(zstd::Encoder::new(f, 0)?);
 
         Ok(FileRecorder {
@@ -457,7 +465,7 @@ impl<'b> Iterator for FilePlayerIterator<'b> {
             None => None,
             Some(ref mut decoder) => match read_record(decoder) {
                 Ok((rec_num, data)) => Some(Ok((self.fr.first_rec_num + rec_num as u64, data))),
-                Err(YgwError::IOError(e)) if e.kind() == std::io::ErrorKind::UnexpectedEof => {
+                Err(YgwError::IOError(_, e)) if e.kind() == std::io::ErrorKind::UnexpectedEof => {
                     self.decoder.take();
                     None
                 }

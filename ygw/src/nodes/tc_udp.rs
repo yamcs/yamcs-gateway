@@ -9,7 +9,8 @@ use tokio::{
 };
 
 use crate::{
-    msg::{Addr, YgwMessage}, LinkStatus, Result, YgwLinkNodeProperties, YgwNode
+    msg::{Addr, YgwMessage},
+    LinkStatus, Result, YgwError, YgwLinkNodeProperties, YgwNode,
 };
 use async_trait::async_trait;
 
@@ -28,12 +29,16 @@ impl YgwNode for TcUdpNode {
         &[]
     }
 
-    async fn run(self: Box<Self>, node_id: u32, tx: Sender<YgwMessage>, mut rx: Receiver<YgwMessage>)  -> Result<()> {
+    async fn run(
+        self: Box<Self>,
+        node_id: u32,
+        tx: Sender<YgwMessage>,
+        mut rx: Receiver<YgwMessage>,
+    ) -> Result<()> {
         let addr = Addr::new(node_id, 0);
 
         let mut link_status = LinkStatus::new(addr);
 
-       
         //send an initial link status indicating that the link is up (it is always up for a UDP)
         link_status.send(&tx).await?;
 
@@ -62,8 +67,13 @@ impl YgwNode for TcUdpNode {
 
 impl TcUdpNode {
     pub async fn new(name: &str, description: &str, addr: SocketAddr) -> Result<Self> {
-        let socket = UdpSocket::bind("0.0.0.0:0").await?;
-        socket.connect(addr).await?;
+        let socket = UdpSocket::bind("0.0.0.0:0")
+            .await
+            .map_err(|e| YgwError::IOError("Cannot bind to 0.0.0.0:0".into(), e))?;
+        socket
+            .connect(addr)
+            .await
+            .map_err(|e| YgwError::IOError(format!("Cannot connect to {addr}"), e))?;
 
         Ok(Self {
             socket,

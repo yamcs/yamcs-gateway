@@ -14,7 +14,7 @@ pub mod recorder;
 
 pub mod utc_converter;
 
-use std::sync::atomic::AtomicU32;
+use std::{io, sync::atomic::AtomicU32};
 
 use async_trait::async_trait;
 use msg::{Addr, YgwMessage, ACKNOWLEDGE_SENT_KEY};
@@ -29,8 +29,8 @@ pub type Result<T> = std::result::Result<T, YgwError>;
 
 #[derive(Error, Debug)]
 pub enum YgwError {
-    #[error(transparent)]
-    IOError(#[from] std::io::Error),
+    #[error("{0}: {1}")]
+    IOError(String, std::io::Error),
 
     #[error("Device access error: {0}")]
     DeviceAccessError(String),
@@ -72,6 +72,12 @@ pub enum YgwError {
 
     #[error("{0}")]
     Other(#[from] Box<dyn std::error::Error + Send + Sync>),
+}
+
+impl From<io::Error> for YgwError {
+    fn from(err: io::Error) -> Self {
+        YgwError::IOError("".into(), err)
+    }
 }
 
 /// A YGW node represents a connection to an end device.
