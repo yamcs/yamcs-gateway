@@ -92,7 +92,7 @@ impl TmUdpNode {
     ) -> Result<Self> {
         let socket = UdpSocket::bind(addr)
             .await
-            .map_err(|e| YgwError::Generic(format!("Failed to bind to {}: {}", addr, e)))?;
+            .map_err(|e| YgwError::IOError(format!("Failed to bind to {}", addr), e))?;
 
         Ok(Self {
             socket,
