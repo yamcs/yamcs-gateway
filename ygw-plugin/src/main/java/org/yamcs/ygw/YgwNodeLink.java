@@ -2,6 +2,7 @@ package org.yamcs.ygw;
 
 import static org.yamcs.cmdhistory.CommandHistoryPublisher.AcknowledgeSent_KEY;
 
+import java.util.ArrayList;
 import java.util.HashMap;
 import java.util.List;
 import java.util.Map;
@@ -14,6 +15,7 @@ import org.yamcs.commanding.PreparedCommand;
 import org.yamcs.parameter.ParameterValue;
 import org.yamcs.tctm.AbstractTcTmParamLink;
 import org.yamcs.tctm.AggregatedDataLink;
+import org.yamcs.tctm.Link;
 import org.yamcs.utils.TimeEncoding;
 import org.yamcs.ygw.protobuf.Ygw.CommandAck;
 import org.yamcs.ygw.protobuf.Ygw.LinkStatus;
@@ -28,7 +30,7 @@ import io.netty.buffer.ByteBuf;
  * <p>
  * Each sub-link has an id and the node itself functions as a link with id 0
  */
-public class YgwNodeLink extends AbstractTcTmParamLink {
+public class YgwNodeLink extends AbstractTcTmParamLink implements AggregatedDataLink {
     /** node id */
     final int nodeId;
 
@@ -286,6 +288,11 @@ public class YgwNodeLink extends AbstractTcTmParamLink {
     public void addSublink(int linkId, YgwNodeLink nodeSublink) {
         subLinks.put(linkId, nodeSublink);
 
+    }
+
+    @Override
+    public List<Link> getSubLinks() {
+        return new ArrayList<Link>(subLinks.values());
     }
 
 }

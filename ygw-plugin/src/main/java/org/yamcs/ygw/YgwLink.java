@@ -17,6 +17,7 @@ import org.yamcs.YamcsServerInstance;
 import org.yamcs.Spec.OptionType;
 import org.yamcs.events.EventProducerFactory;
 import org.yamcs.logging.Log;
+import org.yamcs.management.LinkManager;
 import org.yamcs.parameter.SoftwareParameterManager;
 import org.yamcs.tctm.AbstractLink;
 import org.yamcs.tctm.AggregatedDataLink;
@@ -45,6 +46,27 @@ import io.netty.channel.socket.nio.NioSocketChannel;
 import io.netty.handler.codec.LengthFieldBasedFrameDecoder;
 import us.hebi.quickbuf.InvalidProtocolBufferException;
 
+/**
+ * Yamcs gateway link.
+ * <p>
+ * This is a Yamcs aggregated data link. It has a number of sub-links that correspond to the Yamcs Gateway nodes. Each
+ * node can have itself a list of sub-links.
+ * <p>
+ * The nodes and nodes sub-links are handled by the {@link YgwNodeLink} - there is one such object for each node and for
+ * each node' sub-link.
+ * <p>
+ * The list of nodes and their sub-links are created dynamically when Yamcs connects to the Gateway.
+ * <p>
+ * Configuration wise it looks like a normal Yamcs link configuration (where one can set the tm stream/pre-processor, tc
+ * stream/post-processor) but there is the possibility to override the main configuration at the level of nodes and
+ * sublinks.
+ * <p>
+ * Each Gateway node specify itself if it can handle TM/TC and they only added in the processing chain by the
+ * {@link LinkManager} if they support TM/TC.
+ * <p>
+ * TODO: the Yamcs Gateway can record data locally. This link does not yet support the feature to download the recorded
+ * data.
+ */
 public class YgwLink extends AbstractLink implements AggregatedDataLink {
     final static int MAX_PACKET_LENGTH = 0xFFFF;
     public static final byte VERSION = 0;
@@ -157,7 +179,10 @@ public class YgwLink extends AbstractLink implements AggregatedDataLink {
             YgwNodeLink nodeLink = new YgwNodeLink(this, node);
 
             Map<String, Object> nodeConfigMap = new HashMap(nodesConfig.getConfigOrEmpty(node.getName()).getRoot());
-            config.getRoot().forEach((key, value) -> nodeConfigMap.putIfAbsent(key, value));
+            config.getRoot().forEach((key, value) -> {
+                if (!"nodes".equals(key))
+                    nodeConfigMap.putIfAbsent(key, value);
+            });
             YConfiguration nodeConfig = YConfiguration.wrap(nodeConfigMap);
             log.debug("Adding node {} with config", nodeConfig);
 
@@ -166,15 +191,22 @@ public class YgwLink extends AbstractLink implements AggregatedDataLink {
             sublinks.add(nodeLink);
             nodes.put(nodeLink.nodeId, nodeLink);
 
+            var linksConfig = nodeConfig.getConfigOrEmpty("links");
+
             for (var link : node.getLinks()) {
                 YgwNodeLink nodeSublink = new YgwNodeLink(this, nodeLink, link);
 
                 Map<String, Object> nodesubLinkConfigMap = new HashMap(
-                        nodeConfig.getConfigOrEmpty(link.getName()).getRoot());
-                nodeConfig.getRoot().forEach((key, value) -> nodesubLinkConfigMap.putIfAbsent(key, value));
+                        linksConfig.getConfigOrEmpty(link.getName()).getRoot());
+
+                nodeConfig.getRoot().forEach((key, value) -> {
+                    if (!"links".equals(key)) {
+                        nodesubLinkConfigMap.putIfAbsent(key, value);
+                    }
+                });
                 YConfiguration nodesubLinkConfig = YConfiguration.wrap(nodesubLinkConfigMap);
                 String name = linkName + "." + nodeLink.name + "." + link.getName();
-                log.warn("Adding sublink {} with config", nodesubLinkConfig);
+                log.debug("Adding sublink {} with config {}", name, nodesubLinkConfig);
                 nodeSublink.init(yamcsInstance, name, nodesubLinkConfig);
                 nodeLink.addSublink(link.getId(), nodeSublink);
             }
