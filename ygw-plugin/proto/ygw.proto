@@ -1,0 +1,279 @@
+//! This file defines messages exchanged between Yamcs and Yamcs Gateway.
+//!
+//! The messages are exchanged via TCP, with each message being preceded by its size and specific header fields.
+//! The format of the messages sent from the Gateway to Yamcs is as follows:
+//!
+//! 1. `length`: uint32 - the length of the message without the length itself.
+//! 2. `VERSION`: uint8 - the version of the message format. Currently only the version 0 exists.
+//! 3. `rn`:  uint64 - the recording number if the message has been recorded locally by the gateway, or 0 if it has not.
+//! 4. `msg_type`: uint8 - one of the message types below.
+//! 5. `addr.node_id`: uint32 - the node ID of the sender.
+//! 6. `addr.link_id`: uint32 - the link ID of the sender.
+//!
+//! The data is the corresponding protobuf encoded message except when the type = TM
+//! For TM the data is composed by a 12 bytes timestamp followed by the TM packet data
+//!
+//! The format of the messages sent from Yamcs to the Gateway is the same, except for the 8 byte recording number which is not present
+
+
+syntax = "proto2";
+
+package yamcs.protobuf.ygw;
+
+option java_package = "org.yamcs.ygw.protobuf";
+
+// import "pvalue.proto";
+
+enum MessageType {
+  NODE_INFO = 1;
+  PARAMETER_DEFINITIONS = 2;
+  COMMAND_DEFINITIONS = 3;
+  TM = 4;
+  TC = 5;
+  EVENT = 6;
+  // sent from Gateway to Yamcs
+  PARAMETER_DATA = 7;
+  LINK_COMMAND = 8;
+  LINK_STATUS = 9;
+  // send from Yamcs to the Gateway
+  PARAMETER_UPDATES = 10;
+  TC_ACK = 11;
+}
+
+message Timestamp {
+  required sint64 millis = 1;
+  required uint32 picos = 2;
+}
+
+// An aggregate value is an ordered list of (member name, member value).
+// Two arrays are used in order to be able to send just the values (since
+// the names will not change)
+message AggregateValue {
+  repeated string name = 1;
+  repeated Value value = 2;
+}
+
+message EnumeratedValue {
+  required sint64 sint64Value = 1;
+  required string stringValue = 4;
+}
+
+message ArrayValue { repeated Value value = 1; }
+
+// Union type for storing a value
+message Value {
+  oneof v {
+    float floatValue = 2;
+    double doubleValue = 3;
+    sint32 sint32Value = 4;
+    uint32 uint32Value = 5;
+    bytes binaryValue = 6;
+    string stringValue = 7;
+    Timestamp timestampValue = 8;
+    uint64 uint64Value = 9;
+    sint64 sint64Value = 10;
+    bool booleanValue = 11;
+    EnumeratedValue enumeratedValue = 13;
+    AggregateValue aggregateValue = 12;
+
+    ArrayValue arrayValue = 14;
+  };
+}
+
+message ParameterValue {
+  // Parameter identifier.
+  // It has to match the id defined in the ParameterDefinition
+  required uint32 id = 1;
+
+  // Raw value (uncalibrated)
+  optional Value rawValue = 3;
+
+  // Engineering value (calibrated)
+  optional Value engValue = 4;
+
+  optional Timestamp acquisitionTime = 5;
+
+  optional Timestamp generationTime = 6;
+
+  // to add if we need them
+  // optional yamcs.protobuf.pvalue.AcquisitionStatus acquisitionStatus = 7;
+
+  // optional yamcs.protobuf.pvalue.MonitoringResult monitoringResult = 8;
+  // optional yamcs.protobuf.pvalue.RangeCondition rangeCondition = 9;
+
+  // How long (in milliseconds) this parameter value is valid
+  optional int64 expireMillis = 10;
+}
+
+// this message is sent from the Gateway to Yamcs
+message ParameterData {
+  repeated ParameterValue parameters = 1;
+
+  // The next three fields are used by the recorder as unique key to store
+  // parameters in "rows" and also by components that provide parameters
+  // from external sources.
+  required string group = 2;
+  required uint32 seqNum = 3;
+
+  // if all parameters have the same generation time, it can be skipped from the
+  // value and provided here
+  optional Timestamp generationTime = 4;
+
+  // if all parameters have the same aquisition time, it can be skipped from the
+  // value and provided here
+  optional Timestamp acquisitionTime = 5;
+}
+
+// this message is sent from Yamcs to the Gateway
+message ParameterUpdates { repeated ParameterValue parameters = 1; }
+
+message CommandAssignment {
+  required string name = 1;
+  optional Value rawValue = 2;
+  optional Value engValue = 3;
+}
+
+message CommandId {
+  required int64 generationTime = 1;
+  required string origin = 2;
+  required int32 sequenceNumber =
+      3; // unique in relation to generationTime and origin
+  optional string commandName = 4;
+}
+
+message PreparedCommand {
+  required CommandId commandId = 1;
+  repeated CommandAssignment assignments = 2;
+  map<string, Value> extra = 3;
+  optional bytes binary = 4;
+}
+
+message CommandAck {
+  enum AckStatus {
+    NA = 0;
+    SCHEDULED = 1;
+    PENDING = 2;
+    OK = 3;
+    NOK = 4;
+    TIMEOUT = 5;
+    CANCELLED = 6;
+    DISABLED = 7;
+  }
+  required CommandId commandId = 1;
+  required AckStatus ack = 2;
+  required string key = 3;
+  required Timestamp time = 4;
+  optional string message = 5;
+  optional ParameterValue returnPv = 6;
+}
+
+enum EventSeverity {
+  INFO = 0;
+  WARNING = 1;
+  ERROR = 2;
+
+  // the levels below are compatible with XTCE
+  //  we left the 4 out since it could be used
+  //  for warning if we ever decide to get rid of the old ones
+
+  WATCH = 3;
+  DISTRESS = 5;
+  CRITICAL = 6;
+  SEVERE = 7;
+}
+
+message Event {
+  optional string source = 1;
+  optional int64 generationTime = 2;
+  optional int64 receptionTime = 3;
+  optional int32 seqNumber = 4;
+  optional string type = 5;
+  required string message = 6;
+  optional EventSeverity severity = 7 [ default = INFO ];
+
+  // Set by API when event was posted by a user
+  optional string createdBy = 10;
+
+  // Additional properties
+  map<string, string> extra = 11;
+}
+
+// YGE nodes
+message NodeList { repeated Node nodes = 1; }
+
+message Link {
+  required uint32 id = 1;
+  required string name = 2;
+  optional string description = 3;
+  optional bool tm = 4;
+  optional bool tc = 5;
+}
+
+message Node {
+  required uint32 id = 1;
+  required string name = 2;
+  optional string description = 3;
+  optional bool tm = 4;
+  optional bool tc = 5;
+  repeated Link links = 6;
+}
+
+message ParameterDefinition {
+  // parameter name relative to the namespace defined in the Yamcs configuration
+  required string relativeName = 1;
+  optional string description = 2;
+  optional string unit = 3;
+  // ptype is the type of the parameter
+  // it can be a fully qualified name of a type known inside Yamcs
+  // or a basic value type sint32, uint32, etc in case it is a simple
+  // engineering only value
+  required string ptype = 4;
+  optional bool writable = 5;
+  // numeric parameter id used when sending the values
+  // the id has to be unique for one node
+  required uint32 id = 6;
+}
+
+message ParameterDefinitionList {
+  repeated ParameterDefinition definitions = 1;
+}
+
+message CommandArgument {
+  required string name = 1;
+  optional string description = 2;
+  optional string unit = 3;
+  required string argtype = 4;
+  optional Value defaultValue = 5;
+}
+
+message CommandDefinition {
+  // command name relative to the namespace defined in the Yamcs configuration
+  required string relativeName = 1;
+  optional string description = 2;
+  repeated CommandArgument arguments = 3;
+}
+
+message CommandDefinitionList { repeated CommandDefinition definitions = 1; }
+
+enum LinkState {
+  OK = 1;
+  UNAVAIL = 2;
+  DISABLED = 3;
+  FAILED = 4;
+}
+
+message LinkStatus {
+  required LinkState state = 1;
+  required uint64 dataInCount = 2;
+  required uint64 dataOutCount = 3;
+  required uint64 dataInSize = 4;
+  required uint64 dataOutSize = 5;
+  /// if there was an error this may provide more details
+  optional string err = 6;
+}
+
+message LinkCommand {
+  required uint32 link_id = 1;
+  required string command = 2;
+  optional string args = 3;
+}

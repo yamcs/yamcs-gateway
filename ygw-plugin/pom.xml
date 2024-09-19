@@ -112,7 +112,7 @@
 						<configuration>
 							<protocVersion>3.21.12</protocVersion>
 							<inputDirectories>
-								<include>../proto</include>
+								<include>proto</include>
 							</inputDirectories>
 							<outputTargets>
 								<outputTarget>
