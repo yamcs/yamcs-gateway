@@ -80,6 +80,14 @@ impl From<bool> for Value {
     }
 }
 
+impl From<String> for Value {
+    fn from(item: String) -> Self {
+        Value {
+            v: Some(value::V::StringValue(item)),
+        }
+    }
+}
+
 impl TryFrom<Value> for f32 {
     type Error = YgwError;
 
