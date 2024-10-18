@@ -227,6 +227,16 @@ public class YgwNodeLink extends AbstractTcTmParamLink implements AggregatedData
 
     @Override
     public boolean sendCommand(PreparedCommand pc) {
+        return sendCommand(pc, null);
+    }
+
+    /**
+     * 
+     * send a command
+     * <p>
+     * relativeName is set for the commands registered from the gateway
+     */
+    public boolean sendCommand(PreparedCommand pc, Integer ygwCmdId) {
         if (!ygwLink.isConnected()) {
             return false;
         }
@@ -240,12 +250,13 @@ public class YgwNodeLink extends AbstractTcTmParamLink implements AggregatedData
             pc.setBinary(binary);
         }
 
-        var protoPc = ProtoConverter.toProto(pc);
+        var protoPc = ProtoConverter.toProto(pc, ygwCmdId);
 
         long time = getCurrentTime();
 
         ygwLink.sendMessage((byte) MessageType.TC_VALUE, nodeId, linkId, protoPc.toByteArray())
                 .whenComplete((c, t) -> {
+
                     if (t != null) {
                         log.warn("Error sending command ", t);
                         failedCommand(pc.getCommandId(), t.getMessage());
@@ -261,8 +272,22 @@ public class YgwNodeLink extends AbstractTcTmParamLink implements AggregatedData
         var cmdId = ProtoConverter.fromProto(cmdAck.getCommandId());
         var time = ProtoConverter.fromProtoMillis(cmdAck.getTime());
         var ack = ProtoConverter.fromProto(cmdAck.getAck());
+        String message = cmdAck.hasMessage() ? cmdAck.getMessage() : null;
+        ParameterValue returnPv = null;
+        if (cmdAck.hasReturnPv()) {
+            var qpv = cmdAck.getReturnPv();
+            var paramMgr = ygwLink.getParameterManager();
+            var ygwp = paramMgr.getYgwParameter(ygwLink, nodeId, qpv.getId());
+            if (ygwp == null) {
+                log.warn("Received a returnPv for an unkown parameter: {}", qpv);
+            } else {
+                returnPv = ProtoConverter.fromProto(ygwp.p, qpv, time, timeService.getMissionTime());
+            }
+
+        }
+
         commandHistoryPublisher.publishAck(cmdId, cmdAck.getKey(), time, ack,
-                cmdAck.getMessage());
+                message, returnPv);
     }
 
     @Override
@@ -294,5 +319,4 @@ public class YgwNodeLink extends AbstractTcTmParamLink implements AggregatedData
     public List<Link> getSubLinks() {
         return new ArrayList<Link>(subLinks.values());
     }
-
 }

@@ -525,7 +525,7 @@ public class YgwLink extends AbstractLink implements AggregatedDataLink {
             try {
                 cdefs = ProtoBufUtils.fromByteBuf(buf, CommandDefinitionList.newInstance());
             } catch (InvalidProtocolBufferException e) {
-                log.warn("Failed to decode parameter definition", e);
+                log.warn("Failed to decode command definitions", e);
                 return;
             }
             log.debug("Got command definitions {}", cdefs);
@@ -556,10 +556,10 @@ public class YgwLink extends AbstractLink implements AggregatedDataLink {
             try {
                 cmdAck = ProtoBufUtils.fromByteBuf(buf, CommandAck.newInstance());
             } catch (InvalidProtocolBufferException e) {
-                log.warn("Failed to decode parameter definition", e);
+                log.warn("Failed to decode command ack ", e);
                 return;
             }
-            log.debug("Got command definitions {}", cmdAck);
+            log.debug("Got command ack {}", cmdAck);
 
             node.processCommandAck(linkId, cmdAck);
         }
@@ -576,6 +576,10 @@ public class YgwLink extends AbstractLink implements AggregatedDataLink {
         public void stop() {
             ctx.close();
         }
+    }
+
+    public YgwParameterManager getParameterManager() {
+        return paramMgr;
     }
 
 }

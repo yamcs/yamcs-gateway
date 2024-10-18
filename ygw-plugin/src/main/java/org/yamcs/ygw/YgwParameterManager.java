@@ -13,7 +13,6 @@ import org.yamcs.parameter.ParameterValue;
 import org.yamcs.parameter.SoftwareParameterManager;
 import org.yamcs.protobuf.Yamcs.Value.Type;
 import org.yamcs.time.TimeService;
-import org.yamcs.utils.TimeEncoding;
 import org.yamcs.xtce.DataSource;
 import org.yamcs.xtce.NameDescription;
 import org.yamcs.xtce.Parameter;
@@ -89,9 +88,9 @@ public class YgwParameterManager implements SoftwareParameterManager {
                 if (link == null) {
                     link = ygwp.link;
                     nodeId = ygwp.nodeId;
-                    pdata.addParameters(toProto(ygwp, pv));
+                    pdata.addParameters(ProtoConverter.toProto(ygwp, pv));
                 } else if (link == ygwp.link && nodeId == ygwp.nodeId) {
-                    pdata.addParameters(toProto(ygwp, pv));
+                    pdata.addParameters(ProtoConverter.toProto(ygwp, pv));
                 } else {
                     if (remaining == null) {
                         remaining = new ArrayList<>();
@@ -116,7 +115,7 @@ public class YgwParameterManager implements SoftwareParameterManager {
      */
     public List<ParameterValue> processParameters(YgwLink ygwLink, int nodeId,
             ParameterData pdata) {
-        long now = TimeEncoding.getWallclockTime();
+        long now = timeService.getMissionTime();
         long genTime = now;
         long acqTime = now;
         if (pdata.hasGenerationTime()) {
@@ -129,11 +128,11 @@ public class YgwParameterManager implements SoftwareParameterManager {
         for (var qpv : pdata.getParameters()) {
             YgwParameter ygwp = pool.getById(ygwLink, nodeId, qpv.getId());
             if (ygwp == null) {
-                log.warn("No parameter found for linke: {}, node: {}, pid: {}; ignoring", ygwLink.getName(), nodeId,
+                log.warn("No parameter found for link: {}, node: {}, pid: {}; ignoring", ygwLink.getName(), nodeId,
                         qpv.getId());
                 continue;
             }
-            plist.add(fromProto(ygwp, qpv, genTime, acqTime));
+            plist.add(ProtoConverter.fromProto(ygwp.p, qpv, genTime, acqTime));
 
         }
         return plist;
@@ -228,59 +227,7 @@ public class YgwParameterManager implements SoftwareParameterManager {
         }
     }
 
-    private ParameterValue fromProto(YgwParameter ygwp, org.yamcs.ygw.protobuf.Ygw.ParameterValue qpv, long genTime,
-            long acqTime) {
-        ParameterValue pv = new ParameterValue(ygwp.p);
-        if (qpv.hasEngValue()) {
-            pv.setEngValue(ProtoConverter.fromProto(qpv.getEngValue()));
-        }
-
-        if (qpv.hasRawValue()) {
-            pv.setRawValue(ProtoConverter.fromProto(qpv.getRawValue()));
-        }
-
-        if (qpv.hasGenerationTime()) {
-            pv.setGenerationTime(ProtoConverter.fromProtoMillis(qpv.getGenerationTime()));
-        } else {
-            pv.setGenerationTime(genTime);
-        }
-
-        if (qpv.hasAcquisitionTime()) {
-            pv.setAcquisitionTime(ProtoConverter.fromProtoMillis(qpv.getAcquisitionTime()));
-        } else {
-            pv.setAcquisitionTime(acqTime);
-        }
-
-        if (qpv.hasExpireMillis()) {
-            pv.setExpireMillis(qpv.getExpireMillis());
-        }
-
-        return pv;
+    public YgwParameter getYgwParameter(YgwLink ygwLink, int nodeId, int pid) {
+        return pool.getById(ygwLink, nodeId, pid);
     }
-
-    private org.yamcs.ygw.protobuf.Ygw.ParameterValue toProto(YgwParameter ygwp, ParameterValue pv) {
-        var qpv = org.yamcs.ygw.protobuf.Ygw.ParameterValue.newInstance().setId(ygwp.id);
-
-        if (pv.getGenerationTime() != TimeEncoding.INVALID_INSTANT) {
-            qpv.setGenerationTime(ProtoConverter.toProtoTimestamp(pv.getGenerationTime()));
-        }
-
-        if (pv.getAcquisitionTime() != TimeEncoding.INVALID_INSTANT) {
-            qpv.setGenerationTime(ProtoConverter.toProtoTimestamp(pv.getAcquisitionTime()));
-        }
-
-        if (pv.getEngValue() != null) {
-            qpv.setEngValue(ProtoConverter.toProto(pv.getEngValue()));
-        }
-
-        if (pv.getRawValue() != null) {
-            qpv.setRawValue(ProtoConverter.toProto(pv.getRawValue()));
-        }
-        if (pv.getExpireMillis() > 0) {
-            qpv.setExpireMillis(pv.getExpireMillis());
-        }
-
-        return qpv;
-    }
-
 }

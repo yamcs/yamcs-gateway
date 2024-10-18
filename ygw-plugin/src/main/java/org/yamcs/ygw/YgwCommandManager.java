@@ -50,7 +50,7 @@ public class YgwCommandManager implements StreamSubscriber {
     final Processor processor;
     final Mdb mdb;
     // maps command FQN to the node/link that has registered the command
-    final Map<String, YgwNodeLink> commands = new ConcurrentHashMap<>();
+    final Map<String, LinkCommandId> commands = new ConcurrentHashMap<>();
     final YgwLink parentLink;
     final CommandHistoryPublisher cmdHistPublisher;
 
@@ -131,7 +131,7 @@ public class YgwCommandManager implements StreamSubscriber {
             mc.addArgument(arg);
 
         }
-        commands.put(fqn, nodeLink);
+        commands.put(fqn, new LinkCommandId(cdef.getYgwCmdId(), nodeLink));
 
         mdb.addMetaCommand(mc);
     }
@@ -151,9 +151,10 @@ public class YgwCommandManager implements StreamSubscriber {
         // if we reached this method it is because the StreamTcCommandReleaser.CommandMatcher created in the constructor
         // cmdReleaser.registerOutStream(...) verified that the command is in the command map, so we are sure nodeLink
         // is not null
-        var nodeLink = commands.get(pc.getCommandName());
+        var lcmdid = commands.get(pc.getCommandName());
+        System.out.println("aici lcmid: " + lcmdid);
 
-        if (!nodeLink.sendCommand(pc)) {
+        if (!lcmdid.nodeLink.sendCommand(pc, lcmdid.ygwCmdId)) {
             CommandId commandId = pc.getCommandId();
             String reason = "YGW link not connected";
             log.info("Failing command cmdId: {}, reason: {}", pc.getCommandId(), reason);
@@ -164,4 +165,6 @@ public class YgwCommandManager implements StreamSubscriber {
         }
     }
 
+    static record LinkCommandId(int ygwCmdId, YgwNodeLink nodeLink) {
+    };
 }

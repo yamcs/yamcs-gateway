@@ -5,11 +5,15 @@ import java.util.Map.Entry;
 import org.yamcs.cmdhistory.CommandHistoryPublisher.AckStatus;
 import org.yamcs.commanding.ArgumentValue;
 import org.yamcs.commanding.PreparedCommand;
+import org.yamcs.parameter.ParameterValue;
 import org.yamcs.protobuf.Commanding.CommandId;
 import org.yamcs.protobuf.Yamcs.Value.Type;
 import org.yamcs.time.TimeService;
+import org.yamcs.utils.TimeEncoding;
 import org.yamcs.xtce.Argument;
+import org.yamcs.xtce.Parameter;
 import org.yamcs.xtce.util.AggregateMemberNames;
+import org.yamcs.ygw.ParameterPool.YgwParameter;
 import org.yamcs.ygw.protobuf.Ygw.AggregateValue;
 import org.yamcs.ygw.protobuf.Ygw.ArrayValue;
 
@@ -20,7 +24,7 @@ import org.yamcs.ygw.protobuf.Ygw.Timestamp;
 import org.yamcs.ygw.protobuf.Ygw.Value;
 
 public class ProtoConverter {
-    static org.yamcs.ygw.protobuf.Ygw.PreparedCommand toProto(PreparedCommand pc) {
+    static org.yamcs.ygw.protobuf.Ygw.PreparedCommand toProto(PreparedCommand pc, Integer ygwCmdId) {
         var qpc = org.yamcs.ygw.protobuf.Ygw.PreparedCommand.newInstance()
                 .setCommandId(toProto(pc.getCommandId()));
 
@@ -31,6 +35,9 @@ public class ProtoConverter {
             for (Entry<Argument, ArgumentValue> entry : pc.getArgAssignment().entrySet()) {
                 qpc.addAssignments(toProto(entry.getKey().getName(), entry.getValue()));
             }
+        }
+        if (ygwCmdId != null) {
+            qpc.setYgwCmdId(ygwCmdId);
         }
 
         return qpc;
@@ -270,4 +277,60 @@ public class ProtoConverter {
         default -> throw new IllegalArgumentException("Unexpected value: " + ackStatus);
         };
     }
+
+    static ParameterValue fromProto(Parameter p, org.yamcs.ygw.protobuf.Ygw.ParameterValue qpv, long genTime,
+            long acqTime) {
+        ParameterValue pv = new ParameterValue(p);
+        if (qpv.hasEngValue()) {
+            pv.setEngValue(ProtoConverter.fromProto(qpv.getEngValue()));
+        }
+
+        if (qpv.hasRawValue()) {
+            pv.setRawValue(ProtoConverter.fromProto(qpv.getRawValue()));
+        }
+
+        if (qpv.hasGenerationTime()) {
+            pv.setGenerationTime(ProtoConverter.fromProtoMillis(qpv.getGenerationTime()));
+        } else {
+            pv.setGenerationTime(genTime);
+        }
+
+        if (qpv.hasAcquisitionTime()) {
+            pv.setAcquisitionTime(ProtoConverter.fromProtoMillis(qpv.getAcquisitionTime()));
+        } else {
+            pv.setAcquisitionTime(acqTime);
+        }
+
+        if (qpv.hasExpireMillis()) {
+            pv.setExpireMillis(qpv.getExpireMillis());
+        }
+
+        return pv;
+    }
+
+    static org.yamcs.ygw.protobuf.Ygw.ParameterValue toProto(YgwParameter ygwp, ParameterValue pv) {
+        var qpv = org.yamcs.ygw.protobuf.Ygw.ParameterValue.newInstance().setId(ygwp.id);
+
+        if (pv.getGenerationTime() != TimeEncoding.INVALID_INSTANT) {
+            qpv.setGenerationTime(ProtoConverter.toProtoTimestamp(pv.getGenerationTime()));
+        }
+
+        if (pv.getAcquisitionTime() != TimeEncoding.INVALID_INSTANT) {
+            qpv.setGenerationTime(ProtoConverter.toProtoTimestamp(pv.getAcquisitionTime()));
+        }
+
+        if (pv.getEngValue() != null) {
+            qpv.setEngValue(ProtoConverter.toProto(pv.getEngValue()));
+        }
+
+        if (pv.getRawValue() != null) {
+            qpv.setRawValue(ProtoConverter.toProto(pv.getRawValue()));
+        }
+        if (pv.getExpireMillis() > 0) {
+            qpv.setExpireMillis(pv.getExpireMillis());
+        }
+
+        return qpv;
+    }
+
 }

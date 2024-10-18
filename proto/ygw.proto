@@ -146,6 +146,9 @@ message PreparedCommand {
   repeated CommandAssignment assignments = 2;
   map<string, Value> extra = 3;
   optional bytes binary = 4;
+   // for commands registered from the gateway, this is the id passed when registering the command
+  // for other commands (general Yamcs MDB commands) this is not set
+  optional uint32 ygw_cmd_id = 5;
 }
 
 message CommandAck {
@@ -251,6 +254,7 @@ message CommandDefinition {
   required string relativeName = 1;
   optional string description = 2;
   repeated CommandArgument arguments = 3;
+  required uint32 ygw_cmd_id = 4;
 }
 
 message CommandDefinitionList { repeated CommandDefinition definitions = 1; }
