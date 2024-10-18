@@ -4,6 +4,9 @@ pub mod ygw_server;
 pub mod nodes {
     pub mod tc_udp;
     pub mod tm_udp;
+    pub mod shellcmd;
+    #[cfg(feature = "ping")]
+    pub mod pingnode;
     #[cfg(feature = "socketcan")]
     pub mod ygw_socketcan;
 }

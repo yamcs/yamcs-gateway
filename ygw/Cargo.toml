@@ -12,6 +12,7 @@ categories = ["aerospace"]
 [features]
 # Enables support for sending/receiving CAN frames via a socketcan interface
 socketcan = ["dep:socketcan"]
+ping=["surge-ping", "rand"]
 
 [dependencies]
 bytes = "1"
@@ -28,7 +29,10 @@ yaml-rust = "0.4.5"
 async-trait = "0.1.78"
 futures = "0.3.30"
 zstd = "0.13.1"
+
 socketcan = {version="3.3.0", features=["tokio"], optional = true}
+surge-ping = {version = "0.8.1", optional = true}
+rand = {version = "0.8", optional =  true}
 
 [build-dependencies]
 prost-build = { version = "0.12.4" }
