@@ -21,8 +21,9 @@ use socketcan::{
 };
 use tokio::sync::mpsc::{Receiver, Sender};
 
-const CMD_SEND_DATA_FRAME: &str = "send_data_frame";
-const CMD_SEND_REMOTE_FRAME: &str = "send_remote_frame";
+
+const CMD_SEND_DATA_FRAME_ID: u32 = 0;
+const CMD_SEND_REMOTE_FRAME_ID: u32 = 1;
 
 pub struct CanNode {
     props: YgwLinkNodeProperties,
@@ -100,8 +101,9 @@ impl CanNode {
 /// called at startup to register commands in Yamcs
 async fn register_commands(addr: Addr, tx: &Sender<YgwMessage>) -> Result<()> {
     let cmd_data_frame = CommandDefinition {
-        relative_name: CMD_SEND_DATA_FRAME.into(),
+        relative_name: "send_data_frame".into(),
         description: Some("Send a data frame with the given id".into()),
+        ygw_cmd_id: CMD_SEND_DATA_FRAME_ID,
         arguments: vec![
             CommandArgument {
                 name: "id".into(),
@@ -120,8 +122,9 @@ async fn register_commands(addr: Addr, tx: &Sender<YgwMessage>) -> Result<()> {
         ],
     };
     let cmd_remote_frame = CommandDefinition {
-        relative_name: CMD_SEND_REMOTE_FRAME.into(),
+        relative_name: "send_remote_frame".into(),
         description: Some("Send a remote frame with the given id".into()),
+        ygw_cmd_id: CMD_SEND_REMOTE_FRAME_ID,
         arguments: vec![
             CommandArgument {
                 name: "id".into(),
@@ -197,8 +200,13 @@ async fn execute_cmd(
     socket: &mut CanSocket,
     cmd: PreparedCommand,
 ) -> Result<()> {
-    match cmd.command_id.command_name {
-        Some(ref s) if check_name(s, CMD_SEND_DATA_FRAME) => {
+    let Some(ygw_cmd_id) = cmd.ygw_cmd_id else {
+        log::warn!("Received command without the ygw_cmd_id, ignored: {:?}", cmd);
+        return Ok(())
+    };
+
+    match ygw_cmd_id {
+        CMD_SEND_DATA_FRAME_ID => {
             let id: u32 = get_eng_arg(&cmd, "id")?;
             let data: Vec<u8> = get_eng_arg(&cmd, "data")?;
             let Some(id) = ExtendedId::new(id) else {
@@ -211,7 +219,7 @@ async fn execute_cmd(
             socket.write_frame(CanFrame::Data(frame))?.await?;
             state.link_status.data_out(1, frame.len() as u64);
         }
-        Some(ref s) if check_name(s, CMD_SEND_REMOTE_FRAME) => {
+        CMD_SEND_REMOTE_FRAME_ID => {
             let id: u32 = get_eng_arg(&cmd, "id")?;
             let dlc: u32 = get_eng_arg(&cmd, "dlc")?;
             let Some(id) = ExtendedId::new(id) else {
@@ -225,7 +233,7 @@ async fn execute_cmd(
             state.link_status.data_out(1, frame.len() as u64);
         }
         _ => {
-            log::warn!("Unknown command received: {:?} ", cmd.command_id.command_name);
+            log::warn!("Unknown command received: ygw_cmd_id={} {:?} ", ygw_cmd_id, cmd.command_id.command_name);
             return Err(YgwError::CommandError(format!(
                 "Command unknown: {:?}",
                 cmd.command_id
