@@ -132,8 +132,7 @@ public class YgwCommandManager implements StreamSubscriber {
 
         }
         commands.put(fqn, new LinkCommandId(cdef.getYgwCmdId(), nodeLink));
-
-        mdb.addMetaCommand(mc);
+        mdb.addMetaCommand(mc, true);
     }
 
     private UnitType getUnit(CommandArgument cdef) {
