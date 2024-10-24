@@ -243,16 +243,37 @@ public class ProtoConverter {
 
     static org.yamcs.yarch.protobuf.Db.Event toYamcsEvent(TimeService timeService, Event ev) {
         org.yamcs.yarch.protobuf.Db.Event.Builder yevb = org.yamcs.yarch.protobuf.Db.Event.newBuilder()
-                .setMessage(ev.getMessage())
-                .setGenerationTime(ev.getGenerationTime())
-                .setSeqNumber(ev.getSeqNumber());
+                .setMessage(ev.getMessage());
+        
+        org.yamcs.protobuf.Event.EventSeverity sev = org.yamcs.protobuf.Event.EventSeverity.forNumber(ev.getSeverityValue());
+        yevb.setSeverity(sev);
+        
+        if (ev.hasSeqNumber()) {
+            yevb.setSeqNumber(ev.getSeqNumber());
+        }
 
         if (ev.hasSource()) {
             yevb.setSource(ev.getSource());
-
         }
-        yevb.setGenerationTime(timeService.getMissionTime());
+        
+        if (ev.hasGenerationTime()) {
+            yevb.setGenerationTime(fromProtoMillis(ev.getGenerationTime()));
+        } else {
+            yevb.setGenerationTime(timeService.getMissionTime());
+        }
 
+        if (ev.hasAcquisitionTime()) {
+            yevb.setReceptionTime(fromProtoMillis(ev.getAcquisitionTime()));
+        } else {
+            yevb.setReceptionTime(timeService.getMissionTime());
+        }
+        
+        if(ev.hasExtra()) {
+            for(var evextr: ev.getExtra()) {
+                yevb.putExtra(evextr.getKey(), evextr.getValue());    
+            }            
+        }
+        
         return yevb.build();
     }
 

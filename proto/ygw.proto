@@ -172,14 +172,8 @@ message CommandAck {
 
 enum EventSeverity {
   INFO = 0;
-  WARNING = 1;
-  ERROR = 2;
-
-  // the levels below are compatible with XTCE
-  //  we left the 4 out since it could be used
-  //  for warning if we ever decide to get rid of the old ones
-
   WATCH = 3;
+  WARNING = 4;
   DISTRESS = 5;
   CRITICAL = 6;
   SEVERE = 7;
@@ -187,17 +181,13 @@ enum EventSeverity {
 
 message Event {
   optional string source = 1;
-  optional int64 generationTime = 2;
-  optional int64 receptionTime = 3;
-  optional int32 seqNumber = 4;
+  optional Timestamp generationTime = 2;
+  optional Timestamp acquisitionTime = 3;
+  optional uint32 seqNumber = 4;
   optional string type = 5;
   required string message = 6;
   optional EventSeverity severity = 7 [ default = INFO ];
 
-  // Set by API when event was posted by a user
-  optional string createdBy = 10;
-
-  // Additional properties
   map<string, string> extra = 11;
 }
 
