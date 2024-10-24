@@ -2,7 +2,7 @@
 use core::f32;
 use std::time::{SystemTime, UNIX_EPOCH};
 
-use ygw::PreparedCommand;
+use ygw::{ArrayValue, PreparedCommand};
 
 use crate::YgwError;
 
@@ -84,6 +84,36 @@ impl From<String> for Value {
     fn from(item: String) -> Self {
         Value {
             v: Some(value::V::StringValue(item)),
+        }
+    }
+}
+
+impl<T> From<&[T]> for Value
+where
+    T: Into<Value> + Copy,
+{
+    fn from(xarray: &[T]) -> Self {
+        let mut v: Vec<Value> = Vec::with_capacity(xarray.len());
+        for x in xarray {
+            v.push((*x).into());
+        }
+        Value {
+            v: Some(value::V::ArrayValue(ArrayValue { value: v })),
+        }
+    }
+}
+
+impl<T> From<Vec<T>> for Value
+where
+    T: Into<Value>,
+{
+    fn from(xarray: Vec<T>) -> Self {
+        let mut v: Vec<Value> = Vec::with_capacity(xarray.len());
+        for x in xarray {
+            v.push(x.into());
+        }
+        Value {
+            v: Some(value::V::ArrayValue(ArrayValue { value: v })),
         }
     }
 }
@@ -209,6 +239,28 @@ impl TryFrom<Value> for String {
             _ => Err(YgwError::ConversionError(
                 format!("{:?}", value),
                 "String".into(),
+            )),
+        }
+    }
+}
+
+impl<T> TryFrom<Value> for Vec<T>
+where
+    T: TryFrom<Value, Error = YgwError>,
+{
+    type Error = YgwError;
+    fn try_from(value: Value) -> Result<Self, Self::Error> {
+        match value.v {
+            Some(value::V::ArrayValue(array)) => {
+                let mut result = Vec::with_capacity(array.value.len());
+                for val in array.value {
+                    result.push(T::try_from(val)?);
+                }
+                Ok(result)
+            }
+            _ => Err(YgwError::ConversionError(
+                format!("{:?}", value),
+                format!("Vec<{}>", std::any::type_name::<T>()),
             )),
         }
     }
