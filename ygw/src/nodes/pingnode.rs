@@ -53,7 +53,7 @@ impl YgwNode for PingNode {
             .iter()
             .map(|t| ParameterDefinition {
                 relative_name: format!("PING/{}", t.name),
-                description: Some(format!("PING statistics for the ip {}", t.ip_addr)),
+                description: Some(format!("PING statistics for ip {}", t.ip_addr)),
                 unit: Some("ms".into()),
                 ptype: "float".into(),
                 writable: Some(false),
