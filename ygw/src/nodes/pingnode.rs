@@ -192,8 +192,10 @@ impl PingNodeBuilder {
 
     /// Sets the value of the parameter published by the pinger in case of timeout
     /// By default it is set to f32::infinity
-    pub fn with_timeout_value(&mut self, timeout_value: f32) {
+    pub fn with_timeout_value(mut self, timeout_value: f32) -> Self {
         self.timeout_value = timeout_value;
+
+        self
     }
 
     pub fn build(self) -> PingNode {
