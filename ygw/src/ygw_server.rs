@@ -704,6 +704,7 @@ mod tests {
             assignments: Vec::new(),
             extra: HashMap::new(),
             binary: Some(vec![1, 2, 3]),
+            ygw_cmd_id: Some(10),
         }
     }
 
