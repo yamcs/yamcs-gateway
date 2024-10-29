@@ -1,4 +1,4 @@
-use std::vec;
+use std::{fmt::format, vec};
 
 use crate::{
     hex8,
@@ -24,28 +24,36 @@ pub struct ShellCmd {
     pub name: String,
     pub description: Option<String>,
     pub cmd: String,
-    pub args: Vec<ShellCmdArg>,
+    pub args: Option<Vec<ShellCmdArg>>,
+    pub out_para: Option<(u32, String)>,
 }
 
 impl ShellCmd {
     fn yamcs_definition(&self, namespace: &str, ygw_cmd_id: u32) -> CommandDefinition {
-        let arguments = self
-            .args
-            .iter()
-            .filter_map(|arg| {
-                if let ShellCmdArg::YamcsArgument { name, argtype } = arg {
-                    Some(CommandArgument {
-                        name: name.clone(),
-                        description: None,
-                        unit: None,
-                        argtype: argtype.clone(),
-                        default_value: None,
-                    })
-                } else {
-                    None
-                }
-            })
-            .collect();
+        let arguments = match self.args.as_ref() {
+            None => vec![],
+            Some(args) => args
+                .iter()
+                .filter_map(|arg| {
+                    if let ShellCmdArg::YamcsArgument {
+                        name,
+                        argtype,
+                        default_value,
+                    } = arg
+                    {
+                        Some(CommandArgument {
+                            name: name.clone(),
+                            description: None,
+                            unit: None,
+                            argtype: argtype.clone(),
+                            default_value: default_value.as_ref().map(|x| x.clone().into()),
+                        })
+                    } else {
+                        None
+                    }
+                })
+                .collect(),
+        };
 
         CommandDefinition {
             relative_name: format!("{}/{}", namespace, self.name),
@@ -59,12 +67,62 @@ impl ShellCmd {
 #[derive(Debug)]
 pub enum ShellCmdArg {
     Simple(String),
-    YamcsArgument { name: String, argtype: String },
+    YamcsArgument {
+        name: String,
+        argtype: String,
+        default_value: Option<String>,
+    },
 }
 
 pub struct ShellCmdNode {
     props: YgwLinkNodeProperties,
     commands: Vec<ShellCmd>,
+}
+
+pub struct ShellCmdNodeBuilder {
+    props: YgwLinkNodeProperties,
+    commands: Vec<ShellCmd>,
+}
+
+impl ShellCmdNodeBuilder {
+    pub fn new(name: &str) -> Self {
+        ShellCmdNodeBuilder {
+            props: YgwLinkNodeProperties {
+                name: name.into(),
+                description: "executes predefined commands".into(),
+                tm: false,
+                tc: false,
+            },
+            commands: Vec::new(),
+        }
+    }
+
+    pub fn add_command(
+        mut self,
+        name: String,
+        description: Option<String>,
+        cmd: String,
+        args: Option<Vec<ShellCmdArg>>,
+        out_para_name: Option<String>,
+    ) -> Self {
+        let out_para = out_para_name.map(|x| (self.commands.len() as u32 * 3 + 4, x));
+        let command = ShellCmd {
+            name,
+            description,
+            cmd,
+            args,
+            out_para,
+        };
+        self.commands.push(command);
+        self
+    }
+
+    pub fn build(self) -> ShellCmdNode {
+        ShellCmdNode {
+            props: self.props,
+            commands: self.commands,
+        }
+    }
 }
 
 #[async_trait]
@@ -91,7 +149,8 @@ impl YgwNode for ShellCmdNode {
             match rx.recv().await {
                 Some(YgwMessage::TcPacket(_, cmd)) => {
                     log::debug!("Received command {:?}", cmd);
-                    let (cnt_out, cnt_in, data_out, data_in) = self.execute_cmd(addr, cmd, &tx, seq_num).await?;
+                    let (cnt_out, cnt_in, data_out, data_in) =
+                        self.execute_cmd(addr, cmd, &tx, seq_num).await?;
                     seq_num += 1;
                     link_status.data_out(cnt_out as u64, data_out as u64);
                     link_status.data_in(cnt_in as u64, data_in as u64);
@@ -138,36 +197,23 @@ impl ShellCmdNode {
     }
 
     pub async fn register_params(&self, addr: Addr, tx: &Sender<YgwMessage>) -> Result<()> {
-        let p_out = ParameterDefinition {
-            relative_name: "STDOUT".into(),
-            description: Some("standard output of the last executed command".into()),
-            unit: None,
-            ptype: "string".into(),
-            writable: None,
-            id: 1,
-        };
-        let p_err = ParameterDefinition {
-            relative_name: "STDERR".into(),
-            description: Some("standard error of the last executed command".into()),
-            unit: None,
-            ptype: "string".into(),
-            writable: None,
-            id: 2,
-        };
-        let p_code = ParameterDefinition {
-            relative_name: "EXITCODE".into(),
-            description: Some("exit code of the last executed command".into()),
-            unit: None,
-            ptype: "sint32".into(),
-            writable: None,
-            id: 3,
-        };
+        let mut definitions = Vec::new();
+        let (p_out, p_err, p_code) = get_defs(1, &self.props.name, None);
+
+        definitions.push(p_out);
+        definitions.push(p_err);
+        definitions.push(p_code);
+
+        for (para_id, para_name) in self.commands.iter().filter_map(|cmd| cmd.out_para.as_ref()) {
+            let (p_out, p_err, p_code) = get_defs(*para_id, &self.props.name, Some(para_name));
+            definitions.push(p_out);
+            definitions.push(p_err);
+            definitions.push(p_code);
+        }
 
         tx.send(YgwMessage::ParameterDefinitions(
             addr,
-            ParameterDefinitionList {
-                definitions: vec![p_out, p_err, p_code],
-            },
+            ParameterDefinitionList { definitions },
         ))
         .await
         .map_err(|_| YgwError::ServerShutdown)
@@ -192,27 +238,33 @@ impl ShellCmdNode {
         let mut data_out = 0;
 
         let mut command = tokio::process::Command::new(&cmd.cmd);
-        for cmdarg in cmd.args.iter() {
-            match cmdarg {
-                ShellCmdArg::Simple(x) => {
-                    data_out += x.len();
-                    command.arg(x)
-                }
-                ShellCmdArg::YamcsArgument { name, argtype: _ } => {
-                    let Some(a) = pc.assignments.iter().find(|&a| a.name == *name) else {
-                        log::warn!("Argument {} not found", name);
-                        //TODO send ack
-                        return Ok((0, 0, 0, 0));
-                    };
-                    let Some(strv) = to_string(&a.eng_value) else {
-                        log::warn!("Argument {} has no value", name);
-                        //TODO send ack
-                        return Ok((0, 0, 0, 0));
-                    };
-                    data_out += strv.len();
-                    command.arg(strv)
-                }
-            };
+        if let Some(args) = cmd.args.as_ref() {
+            for cmdarg in args.iter() {
+                match cmdarg {
+                    ShellCmdArg::Simple(x) => {
+                        data_out += x.len();
+                        command.arg(x)
+                    }
+                    ShellCmdArg::YamcsArgument {
+                        name,
+                        argtype: _,
+                        default_value: _,
+                    } => {
+                        let Some(a) = pc.assignments.iter().find(|&a| a.name == *name) else {
+                            log::warn!("Argument {} not found", name);
+                            //TODO send ack
+                            return Ok((0, 0, 0, 0));
+                        };
+                        let Some(strv) = to_string(&a.eng_value) else {
+                            log::warn!("Argument {} has no value", name);
+                            //TODO send ack
+                            return Ok((0, 0, 0, 0));
+                        };
+                        data_out += strv.len();
+                        command.arg(strv)
+                    }
+                };
+            }
         }
         debug!("Executing command {:?}", command);
 
@@ -229,10 +281,11 @@ impl ShellCmdNode {
                 let stderr = String::from_utf8_lossy(&cmd_out.stderr).into_owned();
                 data_in += stdout.len();
                 data_in += stderr.len();
+                let para_id = cmd.out_para.as_ref().map(|x| x.0).unwrap_or(1);
 
-                let pv_out = get_pv_eng(1, None, stdout);
-                let pv_err = get_pv_eng(2, None, stderr);
-                let pv_code = get_pv_eng(3, None, cmd_out.status.code().unwrap());
+                let pv_out = get_pv_eng(para_id, None, stdout);
+                let pv_err = get_pv_eng(para_id + 1, None, stderr);
+                let pv_code = get_pv_eng(para_id + 2, None, cmd_out.status.code().unwrap());
 
                 tx.send(YgwMessage::ParameterData(
                     addr,
@@ -248,11 +301,7 @@ impl ShellCmdNode {
                 .map_err(|_| YgwError::ServerShutdown)?;
 
                 if cmd_out.status.success() {
-                    (
-                        AckStatus::Ok,
-                        None,
-                        Some(pv_out),
-                    )
+                    (AckStatus::Ok, None, Some(pv_out))
                 } else {
                     (
                         AckStatus::Nok,
@@ -307,4 +356,46 @@ fn to_string(v: &Option<Value>) -> Option<String> {
     };
 
     Some(vstr)
+}
+
+fn get_defs(
+    para_id: u32,
+    node_name: &str,
+    name: Option<&str>,
+) -> (
+    ParameterDefinition,
+    ParameterDefinition,
+    ParameterDefinition,
+) {
+    let rel_name = match name {
+        Some(name) => format!("{}/{}", node_name, name),
+        None => format!("{}", node_name),
+    };
+
+    let p_out = ParameterDefinition {
+        relative_name: format!("{}/STDOUT", rel_name),
+        description: Some("standard output of the last executed command".into()),
+        unit: None,
+        ptype: "string".into(),
+        writable: None,
+        id: para_id,
+    };
+    let p_err = ParameterDefinition {
+        relative_name: format!("{}/STDERR", rel_name),
+        description: Some("standard error of the last executed command".into()),
+        unit: None,
+        ptype: "string".into(),
+        writable: None,
+        id: para_id + 1,
+    };
+    let p_code = ParameterDefinition {
+        relative_name: format!("{}/EXITCODE", rel_name),
+        description: Some("exit code of the last executed command".into()),
+        unit: None,
+        ptype: "sint32".into(),
+        writable: None,
+        id: para_id + 2,
+    };
+
+    (p_out, p_err, p_code)
 }

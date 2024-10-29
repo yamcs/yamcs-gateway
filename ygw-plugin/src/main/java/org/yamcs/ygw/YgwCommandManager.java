@@ -128,6 +128,15 @@ public class YgwCommandManager implements StreamSubscriber {
             }
 
             arg.setArgumentType(atype);
+            if (argdef.hasDefaultValue()) {
+                // FIXME
+                try {
+                    String v = argdef.getDefaultValue().getStringValue();
+                    arg.setInitialValue(arg.getArgumentType().convertType(v));
+                } catch (Exception e) {
+                    log.warn("Cannot set the default argument value ", e);
+                }
+            }
             mc.addArgument(arg);
 
         }
