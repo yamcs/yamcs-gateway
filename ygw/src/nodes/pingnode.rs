@@ -22,6 +22,7 @@ use tokio::{
 pub struct PingNode {
     props: YgwLinkNodeProperties,
     targets: Vec<PingTarget>,
+    timeout_value: f32,
 }
 
 struct PingTarget {
@@ -96,7 +97,7 @@ impl YgwNode for PingNode {
             // Step 2: Ping all `pinger` instances and collect `ParameterValue`s
             let mut ping_futures = Vec::new();
             for (pinger, tp) in &mut pingers {
-                ping_futures.push(ping(pinger, tp, seq));
+                ping_futures.push(ping(pinger, tp, seq, self.timeout_value));
             }
 
             // Wait for all pings to complete and collect their results
@@ -135,11 +136,11 @@ impl YgwNode for PingNode {
     }
 }
 
-async fn ping(pinger: &mut surge_ping::Pinger, target: &PingTarget, seq: u32) -> ParameterValue {
+async fn ping(pinger: &mut surge_ping::Pinger, target: &PingTarget, seq: u32, timeout_value: f32) -> ParameterValue {
     let payload = [0; PING_LEN];
     match pinger.ping(PingSequence(seq as u16), &payload).await {
         Ok((_, dur)) => get_param_value(target, dur.as_secs_f32()),
-        Err(_) => get_param_value(target, f32::INFINITY),
+        Err(_) => get_param_value(target, timeout_value),
     }
 }
 
@@ -158,6 +159,7 @@ fn get_param_value(target: &PingTarget, dur_secs: f32) -> ParameterValue {
 pub struct PingNodeBuilder {
     name: String,
     targets: Vec<PingTarget>,
+    timeout_value: f32
 }
 
 impl PingNodeBuilder {
@@ -165,8 +167,10 @@ impl PingNodeBuilder {
         Self {
             name: name.to_string(),
             targets: Vec::new(),
+            timeout_value: f32::INFINITY,
         }
     }
+
 
     pub async fn add_target(mut self, name: &str, host: &str) -> Result<Self> {
         match lookup_host((host, 0)).await {
@@ -186,6 +190,12 @@ impl PingNodeBuilder {
         }
     }
 
+    /// Sets the value of the parameter published by the pinger in case of timeout
+    /// By default it is set to f32::infinity
+    pub fn with_timeout_value(&mut self, timeout_value: f32) {
+        self.timeout_value = timeout_value;
+    }
+
     pub fn build(self) -> PingNode {
         PingNode {
             props: YgwLinkNodeProperties {
@@ -195,6 +205,7 @@ impl PingNodeBuilder {
                 tc: false,
             },
             targets: self.targets,
+            timeout_value: self.timeout_value
         }
     }
 }
