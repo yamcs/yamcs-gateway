@@ -395,6 +395,7 @@ public class YgwLink extends AbstractLink implements AggregatedDataLink {
             } catch (Exception e) {
                 log.error("Exception processing message", e);
             }
+            buf.release();
         }
 
         private void processNodeInfo(ByteBuf buf) {
