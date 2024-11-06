@@ -5,7 +5,7 @@
 	<groupId>org.yamcs</groupId>
 	<artifactId>yamcs-ygw</artifactId>
 	<packaging>jar</packaging>
-	<version>0.5.3</version>
+	<version>0.5.4-SNAPSHOT</version>
 	<name>Yamcs gateway link</name>
 	<url>http://yamcs.org</url>
 	<description>
