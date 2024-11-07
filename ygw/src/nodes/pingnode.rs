@@ -119,7 +119,7 @@ impl YgwNode for PingNode {
                 group: "ping".into(),
                 seq_num: seq,
                 generation_time: Some(now.clone()),
-                acquisition_time: Some(now),
+                acquisition_time: None,
             };
 
             // Send the `ParameterData` to Yamcs
