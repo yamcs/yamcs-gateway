@@ -23,6 +23,7 @@ pub struct PingNode {
     props: YgwLinkNodeProperties,
     targets: Vec<PingTarget>,
     timeout_value: f32,
+    timeout_duration: Duration
 }
 
 struct PingTarget {
@@ -82,13 +83,14 @@ impl YgwNode for PingNode {
             };
 
             let mut pinger = client.pinger(tp.ip_addr, PingIdentifier(random())).await;
-            pinger.timeout(Duration::from_secs(5));
+            pinger.timeout(self.timeout_duration);
 
             pingers.push((pinger, tp));
         }
 
         let mut seq = 0u32;
         let mut interval = time::interval(Duration::from_secs(1));
+        interval.set_missed_tick_behavior(time::MissedTickBehavior::Delay);
 
         loop {
             interval.tick().await;
@@ -159,6 +161,10 @@ fn get_param_value(target: &PingTarget, dur_secs: f32) -> ParameterValue {
 pub struct PingNodeBuilder {
     name: String,
     targets: Vec<PingTarget>,
+    // how long to wati
+    timeout_duration: Duration,
+    //the value that will be reported as Yamcs parameter value in case of timeout
+    // (by default it is infinity)
     timeout_value: f32
 }
 
@@ -168,6 +174,7 @@ impl PingNodeBuilder {
             name: name.to_string(),
             targets: Vec::new(),
             timeout_value: f32::INFINITY,
+            timeout_duration: Duration::from_secs(5)
         }
     }
 
@@ -198,6 +205,15 @@ impl PingNodeBuilder {
         self
     }
 
+    /// Sets the duration of the ping timeout. If the peer does not answer in this time, 
+    /// it is considered non responding and the timeout_value will be send as the value of the Yamcs parameter
+    /// By default it is set to 5 seconds
+    pub fn with_timeout_duration(mut self, timeout_duration: Duration) -> Self {
+        self.timeout_duration = timeout_duration;
+
+        self
+    }
+
     pub fn build(self) -> PingNode {
         PingNode {
             props: YgwLinkNodeProperties {
@@ -207,7 +223,8 @@ impl PingNodeBuilder {
                 tc: false,
             },
             targets: self.targets,
-            timeout_value: self.timeout_value
+            timeout_value: self.timeout_value,
+            timeout_duration: self.timeout_duration
         }
     }
 }
