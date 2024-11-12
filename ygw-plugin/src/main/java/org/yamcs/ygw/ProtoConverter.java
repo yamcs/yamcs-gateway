@@ -1,11 +1,14 @@
 package org.yamcs.ygw;
 
+import java.lang.invoke.MethodHandles.Lookup.ClassOption;
 import java.util.Map.Entry;
 
+import org.yamcs.CommandOption.CommandOptionType;
 import org.yamcs.cmdhistory.CommandHistoryPublisher.AckStatus;
 import org.yamcs.commanding.ArgumentValue;
 import org.yamcs.commanding.PreparedCommand;
 import org.yamcs.parameter.ParameterValue;
+import org.yamcs.protobuf.Commanding.CommandHistoryAttribute;
 import org.yamcs.protobuf.Commanding.CommandId;
 import org.yamcs.protobuf.Yamcs.Value.Type;
 import org.yamcs.time.TimeService;
@@ -18,8 +21,10 @@ import org.yamcs.ygw.protobuf.Ygw.AggregateValue;
 import org.yamcs.ygw.protobuf.Ygw.ArrayValue;
 
 import org.yamcs.ygw.protobuf.Ygw.CommandAssignment;
+import org.yamcs.ygw.protobuf.Ygw.CommandOption;
 import org.yamcs.ygw.protobuf.Ygw.EnumeratedValue;
 import org.yamcs.ygw.protobuf.Ygw.Event;
+import org.yamcs.ygw.protobuf.Ygw.PreparedCommand.ExtraEntry;
 import org.yamcs.ygw.protobuf.Ygw.Timestamp;
 import org.yamcs.ygw.protobuf.Ygw.Value;
 
@@ -40,7 +45,16 @@ public class ProtoConverter {
             qpc.setYgwCmdId(ygwCmdId);
         }
 
+        if (pc.getAttributes() != null && !pc.getAttributes().isEmpty()) {
+            for (var cha : pc.getAttributes()) {
+                qpc.addExtra(toProto(cha));
+            }
+        }
         return qpc;
+    }
+
+    private static ExtraEntry toProto(CommandHistoryAttribute cha) {
+        return ExtraEntry.newInstance().setKey(cha.getName()).setValue(toProto(cha.getValue()));
     }
 
     static org.yamcs.ygw.protobuf.Ygw.CommandId toProto(CommandId cmdId) {
@@ -108,6 +122,33 @@ public class ProtoConverter {
             qv.setUint64Value(v.getUint64Value());
         } else {
             throw new IllegalStateException("Unknown value type " + v.getClass());
+        }
+
+        return qv;
+    }
+
+    private static Value toProto(org.yamcs.protobuf.Yamcs.Value v) {
+        var qv = Value.newInstance();
+        if (v.getType() == Type.STRING) {
+            qv.setStringValue(v.getStringValue());
+        } else if (v.getType() == Type.BINARY) {
+            qv.setBinaryValue(v.getBinaryValue().toByteArray());
+        } else if (v.getType() == Type.BOOLEAN) {
+            qv.setBooleanValue(v.getBooleanValue());
+        } else if (v.getType() == Type.DOUBLE) {
+            qv.setDoubleValue(v.getDoubleValue());
+        } else if (v.getType() == Type.FLOAT) {
+            qv.setFloatValue(v.getFloatValue());
+        } else if (v.getType() == Type.SINT32) {
+            qv.setSint32Value(v.getSint32Value());
+        } else if (v.getType() == Type.SINT64) {
+            qv.setSint64Value(v.getSint64Value());
+        } else if (v.getType() == Type.UINT32) {
+            qv.setUint32Value(v.getUint32Value());
+        } else if (v.getType() == Type.UINT64) {
+            qv.setUint64Value(v.getUint64Value());
+        } else {
+            throw new IllegalStateException("Value type " + v.getType() + " not supported");
         }
 
         return qv;
@@ -244,10 +285,11 @@ public class ProtoConverter {
     static org.yamcs.yarch.protobuf.Db.Event toYamcsEvent(TimeService timeService, Event ev) {
         org.yamcs.yarch.protobuf.Db.Event.Builder yevb = org.yamcs.yarch.protobuf.Db.Event.newBuilder()
                 .setMessage(ev.getMessage());
-        
-        org.yamcs.protobuf.Event.EventSeverity sev = org.yamcs.protobuf.Event.EventSeverity.forNumber(ev.getSeverityValue());
+
+        org.yamcs.protobuf.Event.EventSeverity sev = org.yamcs.protobuf.Event.EventSeverity
+                .forNumber(ev.getSeverityValue());
         yevb.setSeverity(sev);
-        
+
         if (ev.hasSeqNumber()) {
             yevb.setSeqNumber(ev.getSeqNumber());
         }
@@ -255,7 +297,7 @@ public class ProtoConverter {
         if (ev.hasSource()) {
             yevb.setSource(ev.getSource());
         }
-        
+
         if (ev.hasGenerationTime()) {
             yevb.setGenerationTime(fromProtoMillis(ev.getGenerationTime()));
         } else {
@@ -267,13 +309,13 @@ public class ProtoConverter {
         } else {
             yevb.setReceptionTime(timeService.getMissionTime());
         }
-        
-        if(ev.hasExtra()) {
-            for(var evextr: ev.getExtra()) {
-                yevb.putExtra(evextr.getKey(), evextr.getValue());    
-            }            
+
+        if (ev.hasExtra()) {
+            for (var evextr : ev.getExtra()) {
+                yevb.putExtra(evextr.getKey(), evextr.getValue());
+            }
         }
-        
+
         return yevb.build();
     }
 
@@ -352,6 +394,22 @@ public class ProtoConverter {
         }
 
         return qpv;
+    }
+
+    public static org.yamcs.CommandOption fromProto(CommandOption opt) {
+        CommandOptionType type = switch (opt.getType()) {
+        case BOOLEAN -> CommandOptionType.BOOLEAN;
+        case NUMBER -> CommandOptionType.NUMBER;
+        case STRING -> CommandOptionType.STRING;
+        case TIMESTAMP -> CommandOptionType.TIMESTAMP;
+        default -> throw new IllegalArgumentException("Unexpected value: " + opt.getType());
+        };
+
+        var co = new org.yamcs.CommandOption(opt.getId(), opt.getVerboseName(), type);
+        if (opt.hasHelp()) {
+            co = co.withHelp(opt.getHelp());
+        }
+        return co;
     }
 
 }

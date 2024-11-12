@@ -25,6 +25,7 @@ import org.yamcs.tctm.Link;
 import org.yamcs.xtce.DataSource;
 import org.yamcs.ygw.protobuf.Ygw.CommandAck;
 import org.yamcs.ygw.protobuf.Ygw.CommandDefinitionList;
+import org.yamcs.ygw.protobuf.Ygw.CommandOptionList;
 import org.yamcs.ygw.protobuf.Ygw.Event;
 import org.yamcs.ygw.protobuf.Ygw.LinkStatus;
 import org.yamcs.ygw.protobuf.Ygw.MessageType;
@@ -372,6 +373,7 @@ public class YgwLink extends AbstractLink implements AggregatedDataLink {
             // recording number
             long rn = buf.readLong();
             byte type = buf.readByte();
+
             try {
                 if (type == MessageType.TM_VALUE) {
                     processTm(buf);
@@ -379,16 +381,18 @@ public class YgwLink extends AbstractLink implements AggregatedDataLink {
                     processParameters(buf);
                 } else if (type == MessageType.EVENT_VALUE) {
                     processEvent(buf);
-                } else if (type == MessageType.NODE_INFO_VALUE) {
-                    processNodeInfo(buf);
                 } else if (type == MessageType.LINK_STATUS_VALUE) {
                     processLinkStatus(buf);
+                } else if (type == MessageType.TC_ACK_VALUE) {
+                    processTcAck(buf);
+                } else if (type == MessageType.NODE_INFO_VALUE) {
+                    processNodeInfo(buf);
                 } else if (type == MessageType.PARAMETER_DEFINITIONS_VALUE) {
                     processParameterDefs(buf);
                 } else if (type == MessageType.COMMAND_DEFINITIONS_VALUE) {
                     processCommandDefs(buf);
-                } else if (type == MessageType.TC_ACK_VALUE) {
-                    processTcAck(buf);
+                } else if (type == MessageType.COMMAND_OPTIONS_VALUE) {
+                    processCommandOptions(buf);
                 } else {
                     log.warn("message of type {} not implemented", type);
                 }
@@ -532,6 +536,50 @@ public class YgwLink extends AbstractLink implements AggregatedDataLink {
             log.debug("Got command definitions {}", cdefs);
 
             cmdMgr.addCommandDefs(mdbPath, cdefs, link);
+        }
+
+        /**
+         * Called when a command options message is received from YGW.
+         * <p>
+         * Register the options to the Yamcs server (if not already there)
+         * 
+         */
+        private void processCommandOptions(ByteBuf buf) {
+            int nodeId = buf.readInt();
+            int linkId = buf.readInt();
+
+            YgwNodeLink node = nodes.get(nodeId);
+            if (node == null) {
+                log.warn("Got message for unknown node {}", nodeId);
+                return;
+            }
+            YgwNodeLink link = node.getSublink(linkId);
+            if (link == null) {
+                log.warn("Got message for unknown node/link {}/{}", nodeId, linkId);
+                return;
+            }
+            CommandOptionList optList;
+
+            try {
+                optList = ProtoBufUtils.fromByteBuf(buf, CommandOptionList.newInstance());
+            } catch (InvalidProtocolBufferException e) {
+                log.warn("Failed to decode command definitions", e);
+                return;
+            }
+            var server = YamcsServer.getServer();
+            log.debug("Got command options {}", optList);
+            for (var opt : optList.getOptions()) {
+                try {
+                    var cmdopt = ProtoConverter.fromProto(opt);
+                    if (server.getCommandOption(cmdopt.getId()) == null) {
+                        server.addCommandOption(cmdopt);
+                    } else {
+                        log.debug("Not registering command option {} because it is already registered", cmdopt.getId());
+                    }
+                } catch (Exception e) {
+                    log.warn("Error adding command option ", e);
+                }
+            }
         }
 
         /**

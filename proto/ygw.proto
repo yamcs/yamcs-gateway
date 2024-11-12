@@ -38,6 +38,7 @@ enum MessageType {
   // send from Yamcs to the Gateway
   PARAMETER_UPDATES = 10;
   TC_ACK = 11;
+  COMMAND_OPTIONS = 12;
 }
 
 message Timestamp {
@@ -270,4 +271,23 @@ message LinkCommand {
   required uint32 link_id = 1;
   required string command = 2;
   optional string args = 3;
+}
+
+
+message CommandOption {
+    enum CommandOptionType {
+        BOOLEAN = 0;
+        NUMBER = 1;
+        STRING = 2;
+        TIMESTAMP = 3;
+    }
+
+    required string id = 1;
+    required string verboseName = 2;
+    required CommandOptionType type = 3;
+    optional string help = 4;
+}
+
+message CommandOptionList {
+   repeated CommandOption options = 1;
 }

@@ -39,6 +39,8 @@ pub enum YgwMessage {
     ParameterDefinitions(Addr, protobuf::ygw::ParameterDefinitionList),
     // Sent from YGW to Yamcs at startup
     CommandDefinitions(Addr, protobuf::ygw::CommandDefinitionList),
+    // Sent from YGW to Yamcs at startup
+    CommandOptions(Addr, protobuf::ygw::CommandOptionList),
     // Sent from YGW to Yamcs
     TmPacket(Addr, TmPacket),
     // Sent from Yamcs to YGW
@@ -149,6 +151,9 @@ impl YgwMessage {
             }
             YgwMessage::CommandDefinitions(addr, cmd_defs) => {
                 encode_message(rn, addr, MessageType::CommandDefinitions, cmd_defs)
+            }
+            YgwMessage::CommandOptions(addr, cmd_opts) => {
+                encode_message(rn, addr, MessageType::CommandOptions, cmd_opts)
             }
             YgwMessage::TcAck(addr, cmd_ack) => {
                 encode_message(rn, addr, MessageType::TcAck, cmd_ack)

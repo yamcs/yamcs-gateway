@@ -189,6 +189,10 @@ struct NodeData {
     /// sent in bulk to Yamcs upon connection
     cmd_defs: protobuf::ygw::CommandDefinitionList,
 
+    /// collects the command options as sent by the node
+    /// sent in bulk to Yamcs upon connection
+    cmd_opts: protobuf::ygw::CommandOptionList,
+
     /// collects the parameter values per group as sent by the node
     /// sent in bulk to Yamcs upon connection
     para_values: HashMap<String, protobuf::ygw::ParameterData>,
@@ -209,7 +213,9 @@ impl NodeData {
             cmd_defs: protobuf::ygw::CommandDefinitionList {
                 definitions: Vec::new(),
             },
-
+            cmd_opts: protobuf::ygw::CommandOptionList {
+                options: Vec::new(),
+            },
             para_values: HashMap::new(),
             link_status: HashMap::new(),
         }
@@ -270,6 +276,8 @@ async fn encoder_task(
                                 log::warn!("Error sending data to recorder ");
                             }
                         }
+
+
                         send_data_to_all(&mut connections, enc_msg).await;
 
                         match msg {
@@ -291,6 +299,11 @@ async fn encoder_task(
                             YgwMessage::CommandDefinitions(addr, cmd_defs) => {
                                 if let Some(node) = nodes.get_mut(&addr.node_id()) {
                                     node.cmd_defs.definitions.extend(cmd_defs.definitions);
+                                }
+                            },
+                            YgwMessage::CommandOptions(addr, cmd_opts) => {
+                                if let Some(node) = nodes.get_mut(&addr.node_id()) {
+                                    node.cmd_opts.options.extend(cmd_opts.options);
                                 }
                             },
                             _ => {}
@@ -380,9 +393,21 @@ async fn send_initial_data(
             yc.chan_tx.send(buf).await?;
         }
     }
+    //send the command options
+    for nd in nodes.values() {
+        if !nd.cmd_opts.options.is_empty() {
+            let buf = msg::encode_message(
+                0,
+                &Addr::new(nd.node_id, 0),
+                MessageType::CommandOptions,
+                &nd.cmd_opts,
+            );
+            yc.chan_tx.send(buf).await?;
+        }
+    }
 
     //send the parameter values
-    for nd in nodes.values() {   
+    for nd in nodes.values() {
         for pdata in nd.para_values.values() {
             let buf = msg::encode_message(
                 0,
