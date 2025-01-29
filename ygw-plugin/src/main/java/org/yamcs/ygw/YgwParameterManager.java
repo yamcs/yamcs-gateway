@@ -154,35 +154,36 @@ public class YgwParameterManager implements SoftwareParameterManager {
                 continue;
             }
             String fqn = namespace + NameDescription.PATH_SEPARATOR + pdef.getRelativeName();
-            if (mdb.getParameter(fqn) != null) {
+            Parameter mdbParam = mdb.getParameter(fqn);
+            if (mdbParam == null) {
+                ParameterType ptype = null;
+                try {
+                    ptype = getParameterType(namespace, pdef);
+                } catch (IOException e) {
+                    log.error("Error adding parameter type to the MDB", e);
+                    continue;
+                }
+
+                if (ptype == null) {
+                    log.warn("Parameter type {} is not basic and could not be found in the MDB; parameter ignored",
+                            pdef.getPtype());
+                    continue;
+                }
+                String name = NameDescription.getName(fqn);
+                mdbParam = new Parameter(name);
+                if (pdef.hasDescription()) {
+                    mdbParam.setShortDescription(pdef.getDescription());
+                }
+                mdbParam.setQualifiedName(fqn);
+                mdbParam.setDataSource(dataSource);
+
+                mdbParam.setParameterType(ptype);
+                plist.add(mdbParam);
+            } else {
                 log.debug("Parameter {} already exists in the MDB, not adding it", fqn);
-                continue;
+                // TODO check type compatibility
             }
-
-            ParameterType ptype = null;
-            try {
-                ptype = getParameterType(namespace, pdef);
-            } catch (IOException e) {
-                log.error("Error adding parameter type to the MDB", e);
-                continue;
-            }
-
-            if (ptype == null) {
-                log.warn("Parameter type {} is not basic and could not be found in the MDB; parameter ignored",
-                        pdef.getPtype());
-                continue;
-            }
-            String name = NameDescription.getName(fqn);
-            Parameter p = new Parameter(name);
-            if (pdef.hasDescription()) {
-                p.setShortDescription(pdef.getDescription());
-            }
-            p.setQualifiedName(fqn);
-            p.setDataSource(dataSource);
-
-            p.setParameterType(ptype);
-            plist.add(p);
-            ygwPlist.add(new YgwParameter(link, nodeId, p, pdef.getId(), !pdef.hasWritable() || pdef.getWritable()));
+            ygwPlist.add(new YgwParameter(link, nodeId, mdbParam, pdef.getId(), !pdef.hasWritable() || pdef.getWritable()));
         }
 
         try {
