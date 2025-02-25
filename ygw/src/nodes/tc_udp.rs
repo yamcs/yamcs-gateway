@@ -61,6 +61,8 @@ impl YgwNode for TcUdpNode {
 
             link_status.send(&tx).await?;
         }
+
+        log::debug!("TC UDP node exiting");
         Ok(())
     }
 }

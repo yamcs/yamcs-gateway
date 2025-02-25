@@ -41,7 +41,7 @@ impl YgwNode for TmUdpNode {
         self: Box<Self>,
         node_id: u32,
         tx: Sender<YgwMessage>,
-        mut _rx: Receiver<YgwMessage>,
+        mut rx: Receiver<YgwMessage>,
     ) -> Result<()> {
         let mut buf = [0; MAX_DATAGRAM_LEN];
         let ibs = self.initial_bytes_to_strip;
@@ -73,13 +73,22 @@ impl YgwNode for TmUdpNode {
                             return Err(YgwError::IOError("Error receiving data from UDP socket".into(), err));
                         }
                     }
-
                 }
                 _ = interval.tick() => {
                     link_status.send(&tx).await?
                 }
+                msg = rx.recv() => {
+                    match msg {
+                        Some(msg) => log::info!("Received unexpected message {:?}", msg),
+                        None => break
+
+                    }
+                }
             }
         }
+
+        log::debug!("TM UDP node exiting");
+        Ok(())
     }
 }
 

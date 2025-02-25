@@ -6,6 +6,23 @@ use std::time::Duration;
 /// all messages configured on the MIL-1553 devices, are identified by a 32 bit id
 /// the implementors of the Mil1553BcDev trait will map that to whatever is required for the specific device
 pub type MsgId = u32;
+
+pub struct MsgIdGenerator {
+    current: MsgId,
+}
+
+impl MsgIdGenerator {
+    pub fn new() -> Self {
+        Self { current: 0 }
+    }
+
+    pub fn next(&mut self) -> MsgId {
+        let id = self.current;
+        self.current = self.current.wrapping_add(1);
+        id
+    }
+}
+
 pub struct Schedule {
     pub major_frame: Vec<MinorFrame>,
     pub messages: Vec<ScheduledMessage>,

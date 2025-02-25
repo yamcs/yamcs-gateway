@@ -11,6 +11,13 @@
 //!
 //! For the encoding of the data see [`decode`](msg::decode).
 //!
+//! Orderly termination:
+//!  1. The accepter task listens to a cancellation token to know when it should quit.
+//!  2. The token is shared with the Yamcs readers which also quit when the token is canceled.
+//!  3. When the accepter and all the readers quit, the channel to the decoder gets closed and the decoder quits as well.
+//!  4. When the decoder quits, the channels between the decoder and the nodes gets closed and all the nodes are supposed to terminate graceful.
+//!  5. After all the nodes have terminated, the channel between the nodes and the encoder closes and then the encoder closes as well.
+//!  6. Finally the writers and the recorder will close after the channel coming from the encoder closes.
 
 use std::{
     collections::HashMap,
@@ -31,7 +38,10 @@ use tokio::{
     task::JoinHandle,
 };
 use tokio_stream::StreamExt;
-use tokio_util::codec::{FramedRead, LengthDelimitedCodec};
+use tokio_util::{
+    codec::{FramedRead, LengthDelimitedCodec},
+    sync::CancellationToken,
+};
 
 use crate::{
     hex8,
@@ -100,8 +110,9 @@ impl ServerBuilder {
 }
 
 pub struct ServerHandle {
-    pub jh: JoinHandle<Result<()>>,
     pub addr: SocketAddr,
+    pub jh: JoinHandle<Result<()>>,
+    pub cancel_token: CancellationToken,
 }
 
 impl Server {
@@ -123,6 +134,7 @@ impl Server {
 
         let socket = TcpListener::bind(self.addr).await?;
         let addr = socket.local_addr()?;
+        let cancel_token = CancellationToken::new();
 
         for node in self.nodes.drain(..) {
             let props = node.properties();
@@ -137,25 +149,34 @@ impl Server {
             node_tx_map.insert(node_id, tx);
             node_id += 1;
         }
-        let (ctrl_tx, ctrl_rx) = channel(1);
+        let (ctrl_tx, ctrl_rx) = channel(10);
 
         let (decoder_tx, decoder_rx) = tokio::sync::mpsc::channel(100);
-
+        let cancel_token2 = cancel_token.clone();
         let accepter_jh =
-            tokio::spawn(async move { accepter_task(ctrl_tx, socket, decoder_tx).await });
+            tokio::spawn(
+                async move { accepter_task(ctrl_tx, socket, decoder_tx, cancel_token2).await },
+            );
 
-        tokio::spawn(async move {
+        let encoder_jh = tokio::spawn(async move {
             encoder_task(ctrl_rx, encoder_rx, node_data, self.recorder_path).await
         });
 
-        tokio::spawn(async move { decoder_task(decoder_rx, node_tx_map).await });
+        let decoder_jh = tokio::spawn(async move { decoder_task(decoder_rx, node_tx_map).await });
 
-        //TODO check result from join
-        // futures::future::join_all(handles);
+        let jh: JoinHandle<Result<()>> = tokio::spawn(async move {
+            let (res1, res2, res3) =
+                futures::future::join3(accepter_jh, encoder_jh, decoder_jh).await;
+            res1.map_err(|e| YgwError::from(e))
+                .and(res2.map_err(|e| YgwError::from(e)))
+                .and(res3.map_err(|e| YgwError::from(e)))
+                .map(|_| ())
+        });
 
         Ok(ServerHandle {
-            jh: accepter_jh,
+            jh,
             addr,
+            cancel_token,
         })
     }
 }
@@ -249,7 +270,7 @@ async fn encoder_task(
         None => None,
         Some(dir) => {
             log::info!(
-                "Starting recorder with recording directory {}",
+                "Encoder: starting recorder with recording directory {}",
                 dir.display()
             );
             let (mut recorder, last_rn) = Recorder::new(&dir)?;
@@ -263,6 +284,10 @@ async fn encoder_task(
         }
     };
 
+    // the ctrl_select changes to false if the channel from the accepter closes.
+    // We stop reading from the ctrl_rx but keep reading from the encoder_rx (coming from nodes).
+    // When all the nodes quit, the encoder_rx will be closed and only then the encoder quits.
+    let mut ctrl_select = true;
     loop {
         select! {
             msg = encoder_rx.recv() => {
@@ -273,10 +298,9 @@ async fn encoder_task(
                         let enc_msg = msg.encode(rn);
                         if let Some(ref recorder_tx) = recorder_tx {
                             if let Err(e) = recorder_tx.send(enc_msg.clone()).await {
-                                log::warn!("Error sending data to recorder ");
+                                log::warn!("Encoder: error sending data to recorder ");
                             }
                         }
-
 
                         send_data_to_all(&mut connections, enc_msg).await;
 
@@ -309,25 +333,33 @@ async fn encoder_task(
                             _ => {}
                         }
                     },
-                    None => break
+                    None => {
+                        log::debug!("Encoder: channel from nodes closed");
+                        break
+                    }
                 }
             }
-            msg = ctrl_rx.recv() => {
+            msg = ctrl_rx.recv(), if ctrl_select => {
                 //control message
                 match msg {
                     Some(CtrlMessage::NewYamcsConnection(yc)) => {
                         if let Err(_)= send_initial_data(&yc, &nodes).await {
-                            log::warn!("Error sending initial data message to {}", yc.addr);
+                            log::warn!("Encoder: error sending initial data message to {}", yc.addr);
                             continue;
                         }
                         connections.push(yc);
                     },
                     Some(CtrlMessage::YamcsConnectionClosed(addr)) => connections.retain(|yc| yc.addr != addr),
-                    None => break
+                    None => {
+                        log::debug!("Encoder: channel from accepter closed, waiting for all nodes to quit");
+                        ctrl_select = false;
+                    },
                 }
             }
         }
     }
+
+    log::debug!("Encoder task exiting");
     Ok(())
 }
 
@@ -463,6 +495,7 @@ async fn decoder_task(
         };
     }
 
+    log::debug!("Decoder task exiting");
     Ok(())
 }
 
@@ -472,33 +505,52 @@ async fn accepter_task(
     ctrl_tx: Sender<CtrlMessage>,
     srv_sock: TcpListener,
     decoder_tx: Sender<Bytes>,
+    cancel_token: CancellationToken,
 ) -> Result<()> {
     loop {
-        let (sock, addr) = srv_sock.accept().await?;
-        log::info!("New Yamcs connection from {}", addr);
+        tokio::select! {
+            res = srv_sock.accept() => {
+                match res {
+                    Ok((sock, addr)) => {
+                        log::info!("New Yamcs connection from {}", addr);
+                        let (read_sock, write_sock) = sock.into_split();
+                        let (chan_tx, chan_rx) = channel(100);
 
-        let (read_sock, write_sock) = sock.into_split();
-        let (chan_tx, chan_rx) = channel(100);
+                        let decoder_tx2 = decoder_tx.clone();
+                        let ctrl_tx2 = ctrl_tx.clone();
 
-        let dtx = decoder_tx.clone();
-        let ctx = ctrl_tx.clone();
+                        let cancel_token2 = cancel_token.clone();
+                        let reader_jh = tokio::spawn(async move { reader_task(ctrl_tx2, addr, read_sock, decoder_tx2, cancel_token2).await });
+                        let writer_jh = tokio::spawn(async move { writer_task(write_sock, chan_rx).await });
 
-        let reader_jh = tokio::spawn(async move { reader_task(ctx, addr, read_sock, dtx).await });
-        let writer_jh = tokio::spawn(async move { writer_task(write_sock, chan_rx).await });
+                        let yc = YamcsConnection {
+                            addr,
+                            reader_jh,
+                            writer_jh,
+                            chan_tx,
+                            drop_if_full: false,
+                        };
 
-        let yc = YamcsConnection {
-            addr,
-            reader_jh,
-            writer_jh,
-            chan_tx,
-            drop_if_full: false,
-        };
-
-        if let Err(_) = ctrl_tx.send(CtrlMessage::NewYamcsConnection(yc)).await {
-            // channel closed
-            break;
+                        if let Err(_) = ctrl_tx.send(CtrlMessage::NewYamcsConnection(yc)).await {
+                            // channel closed
+                            break;
+                        }
+                    }
+                    Err(err) => {
+                        log::error!("Failed to accept connection: {}", err);
+                        break;
+                    }
+                }
+            },
+            _ = cancel_token.cancelled() => {
+                log::debug!("Accepter task received cancel signal.");
+                break;
+            }
         }
     }
+
+    log::debug!("Accepter task exiting");
+
     Ok(())
 }
 
@@ -510,33 +562,43 @@ async fn reader_task(
     addr: SocketAddr,
     read_sock: OwnedReadHalf,
     decoder_tx: Sender<Bytes>,
+    cancel_token: CancellationToken,
 ) -> Result<()> {
     let mut stream = FramedRead::new(read_sock, LengthDelimitedCodec::new());
 
     loop {
-        match stream.next().await {
-            Some(Ok(buf)) => {
-                let buf = buf.freeze();
-                log::trace!("Received message {:}", hex8(&buf));
-                if let Err(_) = decoder_tx.send(buf).await {
-                    //channel to decoder closed
-                    break;
+        select! {
+            result = stream.next() => {
+                match result {
+                    Some(Ok(buf)) => {
+                        let buf = buf.freeze();
+                        log::trace!("Received message {:}", hex8(&buf));
+                        if let Err(_) = decoder_tx.send(buf).await {
+                            //channel to decoder closed
+                            break;
+                        }
+                    }
+                    Some(Err(e)) => {
+                        //this can happen if the length of the data (first 4 bytes) is longer than the max
+                        //also if the socket closes in the middle of a message
+                        log::warn!("Error reading from {}: {:?}", addr, e);
+                        let _ = ctrl_tx.send(CtrlMessage::YamcsConnectionClosed(addr)).await;
+                        return Err(YgwError::IOError(format!("Error reading from {addr}"), e));
+                    }
+                    None => {
+                        log::info!("Yamcs connection {} closed", addr);
+                        let _ = ctrl_tx.send(CtrlMessage::YamcsConnectionClosed(addr)).await;
+                        break;
+                    }
                 }
             }
-            Some(Err(e)) => {
-                //this can happen if the length of the data (first 4 bytes) is longer than the max
-                //also if the socket closes in the middle of a message
-                log::warn!("Error reading from {}: {:?}", addr, e);
-                let _ = ctrl_tx.send(CtrlMessage::YamcsConnectionClosed(addr)).await;
-                return Err(YgwError::IOError(format!("Error reading from {addr}"), e));
-            }
-            None => {
-                log::info!("Yamcs connection {} closed", addr);
-                let _ = ctrl_tx.send(CtrlMessage::YamcsConnectionClosed(addr)).await;
+            _ = cancel_token.cancelled() => {
+                log::debug!("Reader task for {} received cancel signal", addr);
                 break;
             }
         }
     }
+
     Ok(())
 }
 
@@ -550,6 +612,7 @@ async fn writer_task(mut sock: OwnedWriteHalf, mut chan: Receiver<EncodedMessage
             None => break,
         }
     }
+    log::debug!("Writer task exiting");
     Ok(())
 }
 

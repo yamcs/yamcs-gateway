@@ -24,7 +24,7 @@ use msg::{Addr, YgwMessage, ACKNOWLEDGE_SENT_KEY};
 
 use protobuf::ygw::{command_ack::AckStatus, CommandId};
 use thiserror::Error;
-use tokio::sync::mpsc::{Receiver, Sender};
+use tokio::{sync::mpsc::{Receiver, Sender}, task::JoinError};
 
 static PARAMETER_ID_GENERATOR: AtomicU32 = AtomicU32::new(0);
 
@@ -66,6 +66,9 @@ pub enum YgwError {
     #[error("{0}")]
     Generic(String),
 
+    #[error("{0}")]
+    TerminationError(String),
+
     #[cfg(feature = "socketcan")]
     #[error(transparent)]
     SocketCanError(#[from] socketcan::Error),
@@ -83,6 +86,11 @@ impl From<io::Error> for YgwError {
     }
 }
 
+impl From<JoinError> for YgwError {
+    fn from(err: JoinError) -> Self {
+        YgwError::TerminationError(err.to_string())
+    }
+}
 /// A YGW node represents a connection to an end device.
 /// The node appears as a link in Yamcs and can have sub-links.
 ///
