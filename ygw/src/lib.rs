@@ -9,6 +9,8 @@ pub mod nodes {
     pub mod pingnode;
     #[cfg(feature = "socketcan")]
     pub mod ygw_socketcan;
+    #[cfg(feature = "serial")]
+    pub mod tmtc_serial;
 }
 pub mod protobuf;
 
@@ -126,9 +128,46 @@ pub struct YgwLinkNodeProperties {
     pub description: String,
 
     /// if this is set to true, Yamcs will setup a TM pre-processor for this link/node
-    pub tm: bool,
+    pub tm_packet: bool,
     /// if this is set to true, Yamcs will setup a TC post-processor for this link/node
     pub tc: bool,
+    /// if this is set to true, Yamcs will setup a CCSDS frame demultiplexer for this link/node
+    pub tm_frame: bool,
+    /// if this is set to true, Yamcs will setup a CCSDS frame multiplexer for this link/node
+    pub tc_frame: bool,
+}
+
+impl YgwLinkNodeProperties {
+    pub fn new(name: impl Into<String>, description: impl Into<String>) -> Self {
+        Self {
+            name: name.into(),
+            description: description.into(),
+            tm_packet: false,
+            tc: false,
+            tm_frame: false,
+            tc_frame: false,
+        }
+    }
+
+    pub fn tm_packet(mut self, value: bool) -> Self {
+        self.tm_packet = value;
+        self
+    }
+
+    pub fn tc(mut self, value: bool) -> Self {
+        self.tc = value;
+        self
+    }
+
+    pub fn tm_frame(mut self, value: bool) -> Self {
+        self.tm_frame = value;
+        self
+    }
+
+    pub fn tc_frame(mut self, value: bool) -> Self {
+        self.tc_frame = value;
+        self
+    }
 }
 
 #[derive(Clone, Debug)]
@@ -142,8 +181,10 @@ impl Link {
             id: self.id,
             name: self.props.name.clone(),
             description: Some(self.props.description.clone()),
-            tm: if self.props.tm { Some(true) } else { None },
+            tm_packet: if self.props.tm_packet { Some(true) } else { None },
             tc: if self.props.tc { Some(true) } else { None },
+            tm_frame: if self.props.tm_frame { Some(true) } else { None },
+            tc_frame: if self.props.tc_frame { Some(true) } else { None },
         }
     }
 }

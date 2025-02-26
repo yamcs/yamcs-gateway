@@ -5,7 +5,7 @@
 	<groupId>org.yamcs</groupId>
 	<artifactId>yamcs-ygw</artifactId>
 	<packaging>jar</packaging>
-	<version>0.5.10-SNAPSHOT</version>
+	<version>0.7.0-SNAPSHOT</version>
 	<name>Yamcs gateway link</name>
 	<url>https://yamcs.org</url>
 	<description>
@@ -34,7 +34,7 @@
 
 
 	<properties>
-		<yamcs.version>5.10.7</yamcs.version>
+		<yamcs.version>5.11.8</yamcs.version>
 		<quickbuf.version>1.4</quickbuf.version>
 		<quickbuf.options>indent=4,allocation=lazy,extensions=embedded</quickbuf.options>
 	</properties>

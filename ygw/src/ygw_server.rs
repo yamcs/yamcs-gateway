@@ -247,8 +247,22 @@ impl NodeData {
             id: self.node_id,
             name: self.props.name.clone(),
             description: Some(self.props.description.clone()),
-            tm: if self.props.tm { Some(true) } else { None },
+            tm_packet: if self.props.tm_packet {
+                Some(true)
+            } else {
+                None
+            },
+            tm_frame: if self.props.tm_frame {
+                Some(true)
+            } else {
+                None
+            },            
             tc: if self.props.tc { Some(true) } else { None },
+            tc_frame: if self.props.tc_frame {
+                Some(true)
+            } else {
+                None
+            },
             links: self.links.iter().map(|l| l.to_proto()).collect(),
         }
     }
@@ -298,7 +312,7 @@ async fn encoder_task(
                         let enc_msg = msg.encode(rn);
                         if let Some(ref recorder_tx) = recorder_tx {
                             if let Err(e) = recorder_tx.send(enc_msg.clone()).await {
-                                log::warn!("Encoder: error sending data to recorder ");
+                                log::warn!("Error sending data to recorder: {:?}", e);
                             }
                         }
 
@@ -693,7 +707,7 @@ mod tests {
 
         let mut conn = TcpStream::connect(addr).await.unwrap();
         let pc = prepared_cmd();
-        let msg = YgwMessage::TcPacket(Addr::new(node_id, 0), pc.clone());
+        let msg = YgwMessage::Tc(Addr::new(node_id, 0), pc.clone());
         let enc_msg = msg.encode(0);
 
         conn.write_all(&enc_msg).await.unwrap();
@@ -772,12 +786,9 @@ mod tests {
 
     async fn setup_test() -> (SocketAddr, u32, Sender<YgwMessage>, Receiver<YgwMessage>) {
         let (tx, mut rx) = mpsc::channel(1);
-        let props = YgwLinkNodeProperties {
-            name: "test_node".into(),
-            description: "test node".into(),
-            tm: true,
-            tc: true,
-        };
+        let props = YgwLinkNodeProperties::new("test_node", "test node")
+            .tm_packet(true)
+            .tc(true);
 
         let dn = DummyNode { props, tx };
         let addr = ([127, 0, 0, 1], 0).into();

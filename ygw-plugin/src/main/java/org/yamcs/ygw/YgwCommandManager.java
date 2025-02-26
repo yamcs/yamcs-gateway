@@ -160,7 +160,6 @@ public class YgwCommandManager implements StreamSubscriber {
         // cmdReleaser.registerOutStream(...) verified that the command is in the command map, so we are sure nodeLink
         // is not null
         var lcmdid = commands.get(pc.getCommandName());
-        System.out.println("aici lcmid: " + lcmdid);
 
         if (!lcmdid.nodeLink.sendCommand(pc, lcmdid.ygwCmdId)) {
             CommandId commandId = pc.getCommandId();

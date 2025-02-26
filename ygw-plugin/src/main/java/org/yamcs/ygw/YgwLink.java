@@ -22,6 +22,8 @@ import org.yamcs.parameter.SoftwareParameterManager;
 import org.yamcs.tctm.AbstractLink;
 import org.yamcs.tctm.AggregatedDataLink;
 import org.yamcs.tctm.Link;
+import org.yamcs.tctm.ccsds.AbstractTcFrameLink;
+import org.yamcs.tctm.ccsds.AbstractTmFrameLink;
 import org.yamcs.xtce.DataSource;
 import org.yamcs.ygw.protobuf.Ygw.CommandAck;
 import org.yamcs.ygw.protobuf.Ygw.CommandDefinitionList;
@@ -46,6 +48,9 @@ import io.netty.channel.socket.SocketChannel;
 import io.netty.channel.socket.nio.NioSocketChannel;
 import io.netty.handler.codec.LengthFieldBasedFrameDecoder;
 import us.hebi.quickbuf.InvalidProtocolBufferException;
+
+import static org.yamcs.tctm.ccsds.AbstractTmFrameLink.TM_FRAME_CONFIG_SECTION;
+import static org.yamcs.tctm.ccsds.AbstractTcFrameLink.TC_FRAME_CONFIG_SECTION;
 
 /**
  * Yamcs gateway link.
@@ -138,8 +143,14 @@ public class YgwLink extends AbstractLink implements AggregatedDataLink {
 
         spec.addOption("nodes", OptionType.MAP).withSpec(Spec.ANY)
                 .withDescription("This map can contain configuration overrides for the different nodes");
-        return spec;
 
+        var tmFrameSpec = new Spec();
+        AbstractTmFrameLink.addDefaultOptions(tmFrameSpec);
+        spec.addOption(TM_FRAME_CONFIG_SECTION, OptionType.MAP).withSpec(tmFrameSpec);
+
+        var tcFrameSpec = AbstractTcFrameLink.addDefaultOptions(new Spec());
+        spec.addOption(TC_FRAME_CONFIG_SECTION, OptionType.MAP).withSpec(tcFrameSpec);
+        return spec;
     }
 
     void connect() {
@@ -375,8 +386,10 @@ public class YgwLink extends AbstractLink implements AggregatedDataLink {
             byte type = buf.readByte();
 
             try {
-                if (type == MessageType.TM_VALUE) {
-                    processTm(buf);
+                if (type == MessageType.TM_PACKET_VALUE) {
+                    processTmPacket(buf);
+                } else if (type == MessageType.TM_FRAME_VALUE) {
+                    processTmFrame(buf);
                 } else if (type == MessageType.PARAMETER_DATA_VALUE) {
                     processParameters(buf);
                 } else if (type == MessageType.EVENT_VALUE) {
@@ -414,7 +427,7 @@ public class YgwLink extends AbstractLink implements AggregatedDataLink {
         /**
          * Called when TM packet messages are received from YGW
          */
-        private void processTm(ByteBuf buf) {
+        private void processTmPacket(ByteBuf buf) {
             int nodeId = buf.readInt();
             int linkId = buf.readInt();
 
@@ -423,7 +436,22 @@ public class YgwLink extends AbstractLink implements AggregatedDataLink {
                 log.warn("Got message for unknown node {}", nodeId);
                 return;
             }
-            node.processTm(linkId, buf);
+            node.processTmPacket(linkId, buf);
+        }
+
+        /**
+         * Called when TM frame messages are received from YGW
+         */
+        private void processTmFrame(ByteBuf buf) {
+            int nodeId = buf.readInt();
+            int linkId = buf.readInt();
+
+            YgwNodeLink node = nodes.get(nodeId);
+            if (node == null) {
+                log.warn("Got message for unknown node {}", nodeId);
+                return;
+            }
+            node.processTmFrame(linkId, buf);
         }
 
         /**
@@ -583,7 +611,7 @@ public class YgwLink extends AbstractLink implements AggregatedDataLink {
         }
 
         /**
-         * Called when a TC ACK definition message is received from YGW.
+         * Called when a TC ACK message is received from YGW.
          * 
          */
         private void processTcAck(ByteBuf buf) {
@@ -619,6 +647,7 @@ public class YgwLink extends AbstractLink implements AggregatedDataLink {
 
         @Override
         public void exceptionCaught(ChannelHandlerContext ctx, Throwable cause) {
+            cause.printStackTrace();
             log.warn("Caught exception {}", cause.getMessage());
         }
 

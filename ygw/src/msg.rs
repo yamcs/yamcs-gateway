@@ -43,8 +43,12 @@ pub enum YgwMessage {
     CommandOptions(Addr, protobuf::ygw::CommandOptionList),
     // Sent from YGW to Yamcs
     TmPacket(Addr, TmPacket),
+    // Sent from YGW to Yamcs
+    TmFrame(Addr, TmFrame),
     // Sent from Yamcs to YGW
-    TcPacket(Addr, protobuf::ygw::PreparedCommand),
+    Tc(Addr, protobuf::ygw::PreparedCommand),
+    // Sent from Yamcs to YGW
+    TcFrame(Addr, protobuf::ygw::TcFrame),
     // Sent from YGW to Yamcs
     TcAck(Addr, protobuf::ygw::CommandAck),
     // Sent from YGW to Yamcs
@@ -128,17 +132,31 @@ pub struct TmPacket {
     pub acq_time: ygw::Timestamp,
 }
 
+#[derive(Debug, PartialEq)]
+pub struct TmFrame {
+    pub data: Vec<u8>,
+    /// Earth reception time
+    pub ert: ygw::Timestamp,
+}
+
 impl YgwMessage {
     pub(crate) fn encode(&self, rn: u64) -> EncodedMessage {
         match self {
             YgwMessage::TmPacket(addr, tm) => {
                 let mut emb =
-                    EncodedMessageBuilder::new(tm.data.len() + 12, rn, MessageType::Tm, *addr);
+                    EncodedMessageBuilder::new(tm.data.len() + 12, rn, MessageType::TmPacket, *addr);
                 emb.put_time(&tm.acq_time);
                 emb.put(&tm.data[..]);
                 emb.build()
             }
-            YgwMessage::TcPacket(addr, pc) => encode_message(rn, addr, MessageType::Tc, pc),
+            YgwMessage::TmFrame(addr, tm_frame) => {
+                let mut emb =
+                    EncodedMessageBuilder::new(tm_frame.data.len() + 12, rn, MessageType::TmFrame, *addr);
+                emb.put_time(&tm_frame.ert);
+                emb.put(&tm_frame.data[..]);
+                emb.build()
+            }
+            YgwMessage::Tc(addr, pc) => encode_message(rn, addr, MessageType::Tc, pc),
             YgwMessage::Event(addr, ev) => encode_message(rn, addr, MessageType::Event, ev),
             YgwMessage::ParameterData(addr, pdata) => {
                 encode_message(rn, addr, MessageType::ParameterData, pdata)
@@ -193,7 +211,7 @@ impl YgwMessage {
 
         match msg_type {
             x if x == MessageType::Tc as i32 => match protobuf::ygw::PreparedCommand::decode(buf) {
-                Ok(prep_cmd) => Ok(YgwMessage::TcPacket(addr, prep_cmd)),
+                Ok(prep_cmd) => Ok(YgwMessage::Tc(addr, prep_cmd)),
                 Err(e) => Err(YgwError::DecodeError(e.to_string())),
             },
             x if x == MessageType::ParameterUpdates as i32 => {
@@ -208,7 +226,12 @@ impl YgwMessage {
                     Err(e) => Err(YgwError::DecodeError(e.to_string())),
                 }
             }
-
+            x if x == MessageType::TcFrame as i32 => {
+                match protobuf::ygw::TcFrame::decode(buf) {
+                    Ok(tc_frame) => Ok(YgwMessage::TcFrame(addr, tc_frame)),
+                    Err(e) => Err(YgwError::DecodeError(e.to_string())),
+                }
+            }
             _ => Err(YgwError::DecodeError(format!(
                 "Unexpected message type {}",
                 msg_type
@@ -219,10 +242,11 @@ impl YgwMessage {
     pub fn node_id(&self) -> u32 {
         match self {
             YgwMessage::TmPacket(addr, _) => addr.node_id,
-            YgwMessage::TcPacket(addr, _) => addr.node_id,
+            YgwMessage::Tc(addr, _) => addr.node_id,
             YgwMessage::Event(addr, _) => addr.node_id,
             YgwMessage::ParameterData(addr, _) => addr.node_id,
             YgwMessage::ParameterUpdates(addr, _) => addr.node_id,
+            YgwMessage::TcFrame(addr, _) => addr.node_id,
             _ => todo!(),
         }
     }

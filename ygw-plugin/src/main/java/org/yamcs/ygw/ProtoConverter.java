@@ -1,6 +1,5 @@
 package org.yamcs.ygw;
 
-import java.lang.invoke.MethodHandles.Lookup.ClassOption;
 import java.util.Map.Entry;
 
 import org.yamcs.CommandOption.CommandOptionType;

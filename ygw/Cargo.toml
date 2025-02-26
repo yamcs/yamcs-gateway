@@ -1,6 +1,6 @@
 [package]
 name = "ygw"
-version = "0.5.8"
+version = "0.7.0"
 edition = "2021"
 license = "MIT"
 description = "The goal of Yamcs Gateway is to allow Yamcs to control instruments/payloads as part of an EGSE."
@@ -13,6 +13,7 @@ categories = ["aerospace"]
 # Enables support for sending/receiving CAN frames via a socketcan interface
 socketcan = ["dep:socketcan"]
 ping=["surge-ping", "rand"]
+serial=["tokio-serial"]
 
 [dependencies]
 bytes = "1"
@@ -33,6 +34,8 @@ zstd = "0.13.1"
 socketcan = {version="3.3.0", features=["tokio"], optional = true}
 surge-ping = {version = "0.8.1", optional = true}
 rand = {version = "0.8", optional =  true}
+tokio-serial = {version = "5", optional = true}
+
 
 [build-dependencies]
 prost-build = { version = "0.12.4" }

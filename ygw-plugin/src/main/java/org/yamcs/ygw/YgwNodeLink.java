@@ -1,11 +1,14 @@
 package org.yamcs.ygw;
 
 import static org.yamcs.cmdhistory.CommandHistoryPublisher.AcknowledgeSent_KEY;
+import static org.yamcs.tctm.ccsds.AbstractTmFrameLink.TM_FRAME_CONFIG_SECTION;
+import static org.yamcs.tctm.ccsds.AbstractTcFrameLink.TC_FRAME_CONFIG_SECTION;
 
 import java.util.ArrayList;
 import java.util.HashMap;
 import java.util.List;
 import java.util.Map;
+import java.util.concurrent.CompletableFuture;
 import java.util.stream.Collectors;
 
 import org.yamcs.TmPacket;
@@ -16,11 +19,17 @@ import org.yamcs.parameter.ParameterValue;
 import org.yamcs.tctm.AbstractTcTmParamLink;
 import org.yamcs.tctm.AggregatedDataLink;
 import org.yamcs.tctm.Link;
+import org.yamcs.tctm.TcTmException;
+import org.yamcs.tctm.ccsds.MasterChannelFrameHandler;
+import org.yamcs.tctm.ccsds.MasterChannelFrameMultiplexer;
+import org.yamcs.tctm.ccsds.VcDownlinkHandler;
 import org.yamcs.utils.TimeEncoding;
 import org.yamcs.ygw.protobuf.Ygw.CommandAck;
 import org.yamcs.ygw.protobuf.Ygw.LinkStatus;
 import org.yamcs.ygw.protobuf.Ygw.MessageType;
 import org.yamcs.ygw.protobuf.Ygw.Node;
+import org.yamcs.ygw.protobuf.Ygw.TcFrame;
+import org.yamcs.cmdhistory.StreamCommandHistoryPublisher;
 
 import io.netty.buffer.ByteBuf;
 
@@ -49,12 +58,21 @@ public class YgwNodeLink extends AbstractTcTmParamLink implements AggregatedData
     /** only for sub-links - the parent node link */
     final YgwNodeLink parent;
 
-    final boolean tmEnabled;
+    final boolean tmPacketEnabled;
     final boolean tcEnabled;
+    final boolean tmFrameEnabled;
+    final boolean tcFrameEnabled;
+
     final Map<Integer, YgwNodeLink> subLinks = new HashMap<>();
 
     // stores the link status received from the gateway
     volatile LinkStatus linkStatus;
+
+    MasterChannelFrameHandler tmFrameHandler;
+    ArrayList<Link> vcSublinks;
+    MasterChannelFrameMultiplexer tmFrameMultiplexer;
+
+    TcFrameHandler tcFrameHandler;
 
     /**
      * 
@@ -66,8 +84,20 @@ public class YgwNodeLink extends AbstractTcTmParamLink implements AggregatedData
         this.name = node.getName();
         this.description = node.getDescription();
         this.linkId = 0;
-        this.tmEnabled = node.hasTm() && node.getTm();
+        this.tmPacketEnabled = node.hasTmPacket() && node.getTmPacket();
         this.tcEnabled = node.hasTc() && node.getTc();
+        this.tmFrameEnabled = node.hasTmFrame() && node.getTmFrame();
+        this.tcFrameEnabled = node.hasTcFrame() && node.getTcFrame();
+
+        if (this.tmPacketEnabled && this.tmFrameEnabled) {
+            throw new IllegalArgumentException(
+                    "Cannot enable both TM packet and frames for link " + name + ". Check the ygw configuration");
+        }
+
+        if (this.tcEnabled && this.tcFrameEnabled) {
+            throw new IllegalArgumentException(
+                    "Cannot enable both TC packet and frames for link " + name + ". Check the ygw configuration");
+        }
         this.parent = null;
     }
 
@@ -82,13 +112,62 @@ public class YgwNodeLink extends AbstractTcTmParamLink implements AggregatedData
         this.linkId = link.getId();
         this.name = link.getName();
         this.description = link.getDescription();
-        this.tmEnabled = link.hasTm() && link.getTm();
+        this.tmPacketEnabled = link.hasTmPacket() && link.getTmPacket();
         this.tcEnabled = link.hasTc() && link.getTc();
+        this.tmFrameEnabled = link.hasTmFrame() && link.getTmFrame();
+        this.tcFrameEnabled = link.hasTcFrame() && link.getTcFrame();
+        if (this.tmPacketEnabled && this.tmFrameEnabled) {
+            throw new IllegalArgumentException(
+                    "Cannot enable both TM packet and frames for link " + name + ". Check the ygw configuration");
+        }
+
+        if (this.tcEnabled && this.tcFrameEnabled) {
+            throw new IllegalArgumentException(
+                    "Cannot enable both TC packet and frames for link " + name + ". Check the ygw configuration");
+        }
     }
 
     @Override
     public void init(String instance, String name, YConfiguration config) {
         super.init(instance, name, config);
+        if (tmFrameEnabled) {
+            if (!config.containsKey(TM_FRAME_CONFIG_SECTION)) {
+                log.warn("Node " + name
+                        + " wants to send TM frames but there is no configuration under the " + TM_FRAME_CONFIG_SECTION
+                        + " keyword in the link section");
+                return;
+            }
+            var tmFrameConfig = config.getConfig("tmFrameConfig");
+            tmFrameHandler = new MasterChannelFrameHandler(yamcsInstance, name + ".tm", tmFrameConfig);
+            vcSublinks = new ArrayList<Link>();
+            for (VcDownlinkHandler vch : tmFrameHandler.getVcHandlers()) {
+                if (vch instanceof Link) {
+                    Link l = (Link) vch;
+                    vcSublinks.add(l);
+                    l.setParent(this);
+                }
+            }
+        }
+        if (tcFrameEnabled) {
+            if (!config.containsKey(TC_FRAME_CONFIG_SECTION)) {
+                log.warn("Node " + name
+                        + " wants to receive TC frames but there is no configuration under the "
+                        + TC_FRAME_CONFIG_SECTION + " keyword in the link section");
+                return;
+            }
+            var tcFrameConfig = config.getConfig("tcFrameConfig");
+            tcFrameHandler = new TcFrameHandler(this);
+            tcFrameHandler.init(instance, name + ".tc", tcFrameConfig);
+            for (var l : tcFrameHandler.getSubLinks()) {
+                vcSublinks.add(l);
+                l.setParent(this);
+            }
+            if (commandHistoryPublisher == null) {
+                commandHistoryPublisher = new StreamCommandHistoryPublisher(yamcsInstance);
+            }
+            tcFrameHandler.setCommandHistoryPublisher(commandHistoryPublisher);
+            tcFrameHandler.startAsync();
+        }
     }
 
     @Override
@@ -145,18 +224,18 @@ public class YgwNodeLink extends AbstractTcTmParamLink implements AggregatedData
                 .forEach((t, l) -> parameterSink.updateParameters(t, group, seqNum, pvList));
     }
 
-    public void processTm(int linkId, ByteBuf buf) {
+    public void processTmPacket(int linkId, ByteBuf buf) {
         if (linkId != this.linkId) {
             var subLink = subLinks.get(linkId);
             if (subLink == null) {
                 log.warn("Received TM packet on an unexisting sublink {}; ignoring", linkId);
             } else {
-                subLink.processTm(linkId, buf);
+                subLink.processTmPacket(linkId, buf);
             }
             return;
         }
 
-        if (!tmEnabled) {
+        if (!tmPacketEnabled) {
             log.warn("Received TM packet on a link {} not enabled for TM packets; ignoring", getName());
             return;
         }
@@ -177,6 +256,40 @@ public class YgwNodeLink extends AbstractTcTmParamLink implements AggregatedData
         pkt = packetPreprocessor.process(pkt);
         if (pkt != null) {
             processPacket(pkt);
+        }
+    }
+
+    public void processTmFrame(int linkId, ByteBuf buf) {
+        if (linkId != this.linkId) {
+            var subLink = subLinks.get(linkId);
+            if (subLink == null) {
+                log.warn("Received TM frame on an unexisting sublink {}; ignoring", linkId);
+            } else {
+                subLink.processTmFrame(linkId, buf);
+            }
+            return;
+        }
+
+        if (!tmFrameEnabled) {
+            log.warn("Received TM frame on a link {} not enabled for TM frames; ignoring", getName());
+            return;
+        }
+        if (tmFrameHandler == null) {
+            log.warn("Received frame but have no handler");
+            return;
+        }
+
+        long millis = buf.readLong();
+        int picos = buf.readInt();
+
+        org.yamcs.time.Instant ert = TimeEncoding.fromUnixPicos(millis, picos);
+
+        byte[] data = new byte[buf.readableBytes()];
+        buf.readBytes(data);
+        try {
+            tmFrameHandler.handleFrame(ert, data, 0, data.length);
+        } catch (TcTmException e) {
+            eventProducer.sendWarning("Error processing frame: " + e.toString());
         }
     }
 
@@ -268,6 +381,11 @@ public class YgwNodeLink extends AbstractTcTmParamLink implements AggregatedData
         return true;
     }
 
+    public CompletableFuture<Void> sendTcFrame(byte[] data) {
+        var tcFrameMsg = TcFrame.newInstance().setBinary(data);
+        return ygwLink.sendMessage((byte) MessageType.TC_FRAME_VALUE, nodeId, linkId, tcFrameMsg.toByteArray());
+    }
+
     public void processCommandAck(int linkId, CommandAck cmdAck) {
         var cmdId = ProtoConverter.fromProto(cmdAck.getCommandId());
         var time = ProtoConverter.fromProtoMillis(cmdAck.getTime());
@@ -297,7 +415,7 @@ public class YgwNodeLink extends AbstractTcTmParamLink implements AggregatedData
 
     @Override
     public boolean isTmPacketDataLinkImplemented() {
-        return tmEnabled;
+        return tmPacketEnabled;
     }
 
     @Override
@@ -317,6 +435,10 @@ public class YgwNodeLink extends AbstractTcTmParamLink implements AggregatedData
 
     @Override
     public List<Link> getSubLinks() {
-        return new ArrayList<Link>(subLinks.values());
+        var l = new ArrayList<Link>(subLinks.values());
+        if (vcSublinks != null) {
+            l.addAll(vcSublinks);
+        }
+        return l;
     }
 }

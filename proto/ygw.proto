@@ -28,7 +28,7 @@ enum MessageType {
   NODE_INFO = 1;
   PARAMETER_DEFINITIONS = 2;
   COMMAND_DEFINITIONS = 3;
-  TM = 4;
+  TM_PACKET = 4; 
   TC = 5;
   EVENT = 6;
   // sent from Gateway to Yamcs
@@ -39,6 +39,8 @@ enum MessageType {
   PARAMETER_UPDATES = 10;
   TC_ACK = 11;
   COMMAND_OPTIONS = 12;
+  TM_FRAME = 13;
+  TC_FRAME = 14;
 }
 
 message Timestamp {
@@ -152,6 +154,10 @@ message PreparedCommand {
   optional uint32 ygw_cmd_id = 5;
 }
 
+message TcFrame {
+   required bytes binary = 1;
+}
+
 message CommandAck {
   enum AckStatus {
     NA = 0;
@@ -199,17 +205,42 @@ message Link {
   required uint32 id = 1;
   required string name = 2;
   optional string description = 3;
-  optional bool tm = 4;
+  
+  // if this is true, a TM packet preprocessor will be attached to this link
+  optional bool tm_packet = 4;
+  
+  // if this is true, a command post-processor will be attached to this link, but the link will received the PreparedCommand
   optional bool tc = 5;
+
+  // if this is true, a CCSDS frame demultiplexer will be attached to this link
+  // Note that only one of tm_packet or tm_frame can be true
+  optional bool tm_frame = 6;
+  
+  // if this is true, a CCSDS frame multiplexer will be attached to this link
+  // Note that only one of tc or tc_frame can be true  
+  optional bool tc_frame = 7;
 }
 
 message Node {
   required uint32 id = 1;
   required string name = 2;
   optional string description = 3;
-  optional bool tm = 4;
+   // if this is true, a TM packet preprocessor will be attached to this link
+  optional bool tm_packet = 4;
+
+  // if this is true, a command post-processor will be attached to this link, but the link will received the PreparedCommand
   optional bool tc = 5;
+
+
   repeated Link links = 6;
+
+  // if this is true, a CCSDS frame demultiplexer will be attached to this link
+  // Note that only one of tm_packet or tm_frame can be true
+  optional bool tm_frame = 7;
+  
+  // if this is true, a CCSDS frame multiplexer will be attached to this link
+  // Note that only one of tc or tc_frame can be true  
+  optional bool tc_frame = 8;
 }
 
 message ParameterDefinition {

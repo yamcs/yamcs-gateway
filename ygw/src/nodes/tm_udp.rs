@@ -106,12 +106,8 @@ impl TmUdpNode {
         Ok(Self {
             socket,
             initial_bytes_to_strip,
-            props: YgwLinkNodeProperties {
-                name: name.to_string(),
-                description: description.to_string(),
-                tm: true,
-                tc: false,
-            },
+            props: YgwLinkNodeProperties::new(name, description)
+                .tm_packet(true),
         })
     }
 }

@@ -44,7 +44,7 @@ impl YgwNode for TcUdpNode {
 
         while let Some(msg) = rx.recv().await {
             match msg {
-                YgwMessage::TcPacket(_id, pc) => match pc.binary {
+                YgwMessage::Tc(_id, pc) => match pc.binary {
                     Some(ref cmd_binary) => {
                         link_status.data_out(1, cmd_binary.len() as u64);
 
@@ -77,14 +77,7 @@ impl TcUdpNode {
             .await
             .map_err(|e| YgwError::IOError(format!("Cannot connect to {addr}"), e))?;
 
-        Ok(Self {
-            socket,
-            props: YgwLinkNodeProperties {
-                name: name.to_string(),
-                description: description.to_string(),
-                tm: false,
-                tc: true,
-            },
-        })
+        let props = YgwLinkNodeProperties::new(name, description).tc(true);
+        Ok(Self { socket, props })
     }
 }

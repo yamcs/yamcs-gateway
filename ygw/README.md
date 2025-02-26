@@ -15,7 +15,8 @@ This crate (ygw) contains the code for communication with Yamcs and several stan
  - UDP TC - passes TC from Yamcs via UDP to a remote device.
  - PING - pings regularly hosts in the network and provides round-trip times to Yamcs as parameters
  - SHELL_CMD - executes pre-defined shell commands (any command available on the system where the Gateway runs) and provides the standard output, error and exit code to Yamcs
- - SOCKETCAN - provides to Yamcs raw CAN frames as TM packets and also allows sending CAN or remote CAN frames 
+ - SOCKETCAN - provides to Yamcs raw CAN frames as TM packets and also allows sending CAN or remote CAN frames
+ - SERIAL TMTC - sends and receives CCSDS frames via a serial port. 
 
 
 The crate does not contain an executable. Each project should setup a separate binary executable crate combining the components from this crate possibly with its own components. There is an example [quickstart](../quickstart) project one can start from.

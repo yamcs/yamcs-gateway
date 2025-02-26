@@ -233,12 +233,10 @@ impl PingNodeBuilder {
 
     pub fn build(self) -> PingNode {
         PingNode {
-            props: YgwLinkNodeProperties {
-                name: self.name,
-                description: "pings regularly some hosts and generates packet loss stats".into(),
-                tm: false,
-                tc: false,
-            },
+            props: YgwLinkNodeProperties::new(
+                self.name,
+                "pings regularly some hosts and generates packet loss stats",
+            ),
             targets: self.targets,
             timeout_value: self.timeout_value,
             timeout_duration: self.timeout_duration,

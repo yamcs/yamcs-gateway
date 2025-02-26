@@ -87,12 +87,7 @@ pub struct ShellCmdNodeBuilder {
 impl ShellCmdNodeBuilder {
     pub fn new(name: &str) -> Self {
         ShellCmdNodeBuilder {
-            props: YgwLinkNodeProperties {
-                name: name.into(),
-                description: "executes predefined commands".into(),
-                tm: false,
-                tc: false,
-            },
+            props: YgwLinkNodeProperties::new(name, "executes predefined commands"),
             commands: Vec::new(),
         }
     }
@@ -147,7 +142,7 @@ impl YgwNode for ShellCmdNode {
 
         loop {
             match rx.recv().await {
-                Some(YgwMessage::TcPacket(_, cmd)) => {
+                Some(YgwMessage::Tc(_, cmd)) => {
                     log::debug!("Received command {:?}", cmd);
                     let (cnt_out, cnt_in, data_out, data_in) =
                         self.execute_cmd(addr, cmd, &tx, seq_num).await?;
@@ -171,12 +166,7 @@ impl YgwNode for ShellCmdNode {
 impl ShellCmdNode {
     pub async fn new(name: &str, commands: Vec<ShellCmd>) -> Result<Self> {
         Ok(Self {
-            props: YgwLinkNodeProperties {
-                name: name.to_string(),
-                description: "executes shell commands".into(),
-                tm: false,
-                tc: false,
-            },
+            props: YgwLinkNodeProperties::new(name, "executes shell commands"),
             commands,
         })
     }

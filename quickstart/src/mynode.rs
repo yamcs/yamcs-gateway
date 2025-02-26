@@ -102,12 +102,7 @@ impl YgwNode for MyNode {
 impl MyNode {
     pub async fn new(name: &str, description: &str) -> Result<Self> {
         Ok(Self {
-            props: YgwLinkNodeProperties {
-                name: name.to_string(),
-                description: description.to_string(),
-                tm: false,
-                tc: false,
-            },
+            props: YgwLinkNodeProperties::new(name, description),
         })
     }
 }

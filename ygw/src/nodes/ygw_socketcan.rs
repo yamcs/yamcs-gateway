@@ -21,7 +21,6 @@ use socketcan::{
 };
 use tokio::sync::mpsc::{Receiver, Sender};
 
-
 const CMD_SEND_DATA_FRAME_ID: u32 = 0;
 const CMD_SEND_REMOTE_FRAME_ID: u32 = 1;
 
@@ -84,17 +83,11 @@ impl YgwNode for CanNode {
 impl CanNode {
     pub fn new(name: &str, can_if: &str) -> Result<Self> {
         let socket = CanSocket::open(can_if)?;
-        Ok(Self {
-            props: YgwLinkNodeProperties {
-                name: name.into(),
-                description: "raw CAN interface providing as TM all the data captured and allowing to send raw messages".into(),
-                tm: true,
-                // tc is set to false because this node cannot process general binary TCs
-                // it can only process commands registered from within the module.
-                tc: false, 
-            },
-            socket,
-        })
+        let props = YgwLinkNodeProperties::new(
+            name,
+            "raw CAN interface providing as TM all the data captured and allowing to send raw messages")            
+            .tm_packet(true);
+        Ok(Self { props, socket })
     }
 }
 
@@ -158,7 +151,7 @@ async fn on_can_msg(
 ) -> Result<()> {
     match data {
         Ok(frame) => {
-            let mut data = Vec::with_capacity(4+frame.data().len());
+            let mut data = Vec::with_capacity(4 + frame.data().len());
             data.extend_from_slice(&frame.id_word().to_be_bytes());
             data.extend_from_slice(frame.data());
 
@@ -187,7 +180,7 @@ async fn on_yamcs_msg(
 ) -> Result<()> {
     println!("received message from yamcs {:?}", msg);
     match msg {
-        YgwMessage::TcPacket(_, cmd) => execute_cmd(state, socket, cmd).await?,
+        YgwMessage::Tc(_, cmd) => execute_cmd(state, socket, cmd).await?,
         YgwMessage::LinkCommand(_, _) => todo!(),
         YgwMessage::ParameterUpdates(_, _) => todo!(),
         _ => log::warn!("Unexpected message received from Yamcs: {:?}", msg),
@@ -201,8 +194,11 @@ async fn execute_cmd(
     cmd: PreparedCommand,
 ) -> Result<()> {
     let Some(ygw_cmd_id) = cmd.ygw_cmd_id else {
-        log::warn!("Received command without the ygw_cmd_id, ignored: {:?}", cmd);
-        return Ok(())
+        log::warn!(
+            "Received command without the ygw_cmd_id, ignored: {:?}",
+            cmd
+        );
+        return Ok(());
     };
 
     match ygw_cmd_id {
@@ -233,7 +229,11 @@ async fn execute_cmd(
             state.link_status.data_out(1, frame.len() as u64);
         }
         _ => {
-            log::warn!("Unknown command received: ygw_cmd_id={} {:?} ", ygw_cmd_id, cmd.command_id.command_name);
+            log::warn!(
+                "Unknown command received: ygw_cmd_id={} {:?} ",
+                ygw_cmd_id,
+                cmd.command_id.command_name
+            );
             return Err(YgwError::CommandError(format!(
                 "Command unknown: {:?}",
                 cmd.command_id
