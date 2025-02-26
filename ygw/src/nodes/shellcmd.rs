@@ -163,6 +163,7 @@ impl YgwNode for ShellCmdNode {
             }
         }
 
+        log::debug!("ShellCmdNode exiting");
         Ok(())
     }
 }

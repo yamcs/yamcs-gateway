@@ -8,13 +8,15 @@ use ygw::{
         now,
         ygw::{ParameterDefinition, ParameterUpdates},
     },
-    Link, LinkStatus, Result, YgwError, YgwLinkNodeProperties, YgwNode,
+    LinkStatus, Result, YgwError, YgwLinkNodeProperties, YgwNode,
 };
 use ygw_macros::parameter_group;
 
 pub struct MyNode {
     props: YgwLinkNodeProperties,
 }
+
+#[allow(dead_code)]
 pub struct BasicType {
     abcd: u32,
     xyz: f32,
@@ -39,8 +41,6 @@ impl YgwNode for MyNode {
     fn properties(&self) -> &YgwLinkNodeProperties {
         &self.props
     }
-
-   
 
     async fn run(
         mut self: Box<Self>,
@@ -72,7 +72,7 @@ impl YgwNode for MyNode {
                         if let Some(msg) = msg {
                         log::info!("Got message {:?}", msg);
                         link_status.data_in(1, 0);
-                        
+
                         match msg {
                             YgwMessage::ParameterUpdates(_id, pdata) => {
                                if let Err(e) = update_params(&mut my_params, pdata) {

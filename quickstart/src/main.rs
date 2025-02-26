@@ -3,8 +3,8 @@ pub mod mynode;
 use mynode::MyNode;
 use ygw::{
     nodes::{
-        pingnode::{PingNode, PingNodeBuilder},
-        shellcmd::{ShellCmd, ShellCmdArg, ShellCmdNode, ShellCmdNodeBuilder},
+        pingnode::PingNodeBuilder,
+        shellcmd::{ShellCmdArg, ShellCmdNodeBuilder},
         tc_udp::TcUdpNode,
         tm_udp::TmUdpNode,
         ygw_socketcan::CanNode,

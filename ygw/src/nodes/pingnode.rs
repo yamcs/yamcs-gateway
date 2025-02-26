@@ -23,7 +23,7 @@ pub struct PingNode {
     props: YgwLinkNodeProperties,
     targets: Vec<PingTarget>,
     timeout_value: f32,
-    timeout_duration: Duration
+    timeout_duration: Duration,
 }
 
 struct PingTarget {
@@ -93,52 +93,70 @@ impl YgwNode for PingNode {
         interval.set_missed_tick_behavior(time::MissedTickBehavior::Delay);
 
         loop {
-            interval.tick().await;
-            let now = protobuf::now();
+            tokio::select! {
+                 _ = interval.tick() => {
+                        let now = protobuf::now();
 
-            // Step 2: Ping all `pinger` instances and collect `ParameterValue`s
-            let mut ping_futures = Vec::new();
-            for (pinger, tp) in &mut pingers {
-                ping_futures.push(ping(pinger, tp, seq, self.timeout_value));
+                    // Step 2: Ping all `pinger` instances and collect `ParameterValue`s
+                    let mut ping_futures = Vec::new();
+                    for (pinger, tp) in &mut pingers {
+                        ping_futures.push(ping(pinger, tp, seq, self.timeout_value));
+                    }
+
+                    // Wait for all pings to complete and collect their results
+                    let param_values: Vec<ParameterValue> = futures::future::join_all(ping_futures).await;
+
+                    let count_ok = param_values
+                        .iter()
+                        .filter(
+                            |pv| match pv.eng_value.as_ref().unwrap().v.as_ref().unwrap() {
+                                protobuf::ygw::value::V::FloatValue(val) => !val.is_infinite(),
+                                _ => false,
+                            },
+                        )
+                        .count();
+
+                    // Create a `ParameterData` containing all `ParameterValue`s
+                    let param_data = ParameterData {
+                        parameters: param_values,
+                        group: "ping".into(),
+                        seq_num: seq,
+                        generation_time: Some(now.clone()),
+                        acquisition_time: None,
+                    };
+
+                    // Send the `ParameterData` to Yamcs
+                    tx.send(YgwMessage::ParameterData(addr.clone(), param_data))
+                        .await
+                        .map_err(|_| YgwError::ServerShutdown)?;
+
+                    link_status.data_out(pingers.len() as u64, (pingers.len() * PING_LEN) as u64);
+                    link_status.data_in(count_ok as u64, (count_ok * PING_LEN) as u64);
+
+                    link_status.send(&tx).await?;
+                    seq += 1;
+                }
+                msg = rx.recv() => {
+                    match msg {
+                        None => break,
+                        Some(msg) => log::warn!("Unexpected message received {:?}", msg)
+                    }
+                }
             }
-
-            // Wait for all pings to complete and collect their results
-            let param_values: Vec<ParameterValue> = futures::future::join_all(ping_futures).await;
-
-            let count_ok = param_values
-                .iter()
-                .filter(
-                    |pv| match pv.eng_value.as_ref().unwrap().v.as_ref().unwrap() {
-                        protobuf::ygw::value::V::FloatValue(val) => !val.is_infinite(),
-                        _ => false,
-                    },
-                )
-                .count();
-
-            // Create a `ParameterData` containing all `ParameterValue`s
-            let param_data = ParameterData {
-                parameters: param_values,
-                group: "ping".into(),
-                seq_num: seq,
-                generation_time: Some(now.clone()),
-                acquisition_time: None,
-            };
-
-            // Send the `ParameterData` to Yamcs
-            tx.send(YgwMessage::ParameterData(addr.clone(), param_data))
-                .await
-                .map_err(|_| YgwError::ServerShutdown)?;
-
-            link_status.data_out(pingers.len() as u64, (pingers.len() * PING_LEN) as u64);
-            link_status.data_in(count_ok as u64, (count_ok * PING_LEN) as u64);
-
-            link_status.send(&tx).await?;
-            seq += 1;
         }
+
+        log::debug!("PingNote exiting");
+
+        Ok(())
     }
 }
 
-async fn ping(pinger: &mut surge_ping::Pinger, target: &PingTarget, seq: u32, timeout_value: f32) -> ParameterValue {
+async fn ping(
+    pinger: &mut surge_ping::Pinger,
+    target: &PingTarget,
+    seq: u32,
+    timeout_value: f32,
+) -> ParameterValue {
     let payload = [0; PING_LEN];
     match pinger.ping(PingSequence(seq as u16), &payload).await {
         Ok((_, dur)) => get_param_value(target, dur.as_secs_f32()),
@@ -165,7 +183,7 @@ pub struct PingNodeBuilder {
     timeout_duration: Duration,
     //the value that will be reported as Yamcs parameter value in case of timeout
     // (by default it is infinity)
-    timeout_value: f32
+    timeout_value: f32,
 }
 
 impl PingNodeBuilder {
@@ -174,10 +192,9 @@ impl PingNodeBuilder {
             name: name.to_string(),
             targets: Vec::new(),
             timeout_value: f32::INFINITY,
-            timeout_duration: Duration::from_secs(5)
+            timeout_duration: Duration::from_secs(5),
         }
     }
-
 
     pub async fn add_target(mut self, name: &str, host: &str) -> Result<Self> {
         match lookup_host((host, 0)).await {
@@ -205,7 +222,7 @@ impl PingNodeBuilder {
         self
     }
 
-    /// Sets the duration of the ping timeout. If the peer does not answer in this time, 
+    /// Sets the duration of the ping timeout. If the peer does not answer in this time,
     /// it is considered non responding and the timeout_value will be send as the value of the Yamcs parameter
     /// By default it is set to 5 seconds
     pub fn with_timeout_duration(mut self, timeout_duration: Duration) -> Self {
@@ -224,7 +241,7 @@ impl PingNodeBuilder {
             },
             targets: self.targets,
             timeout_value: self.timeout_value,
-            timeout_duration: self.timeout_duration
+            timeout_duration: self.timeout_duration,
         }
     }
 }

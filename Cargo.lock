@@ -733,7 +733,7 @@ dependencies = [
  "env_logger",
  "log",
  "tokio",
- "ygw 0.5.7",
+ "ygw",
  "ygw-macros",
 ]
 
@@ -1232,7 +1232,7 @@ dependencies = [
 
 [[package]]
 name = "ygw"
-version = "0.5.7"
+version = "0.5.8"
 dependencies = [
  "async-trait",
  "byteorder",
@@ -1256,41 +1256,6 @@ dependencies = [
 ]
 
 [[package]]
-name = "ygw"
-version = "0.5.7"
-source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "1d4ba9c98602952e810c31d251195d32c6bf329ee5f28e8bcfdecc8d8cbe7def"
-dependencies = [
- "async-trait",
- "byteorder",
- "bytes",
- "env_logger",
- "futures",
- "log",
- "prost",
- "prost-build",
- "prost-types",
- "thiserror",
- "tokio",
- "tokio-stream",
- "tokio-util",
- "yaml-rust",
- "zstd",
-]
-
-[[package]]
-name = "ygw-ecss5013c"
-version = "0.1.0"
-dependencies = [
- "async-trait",
- "env_logger",
- "log",
- "tokio",
- "ygw 0.5.7 (registry+https://github.com/rust-lang/crates.io-index)",
- "ygw-mil1553",
-]
-
-[[package]]
 name = "ygw-macros"
 version = "0.2.0"
 dependencies = [
@@ -1301,13 +1266,13 @@ dependencies = [
 
 [[package]]
 name = "ygw-mil1553"
-version = "0.4.0"
+version = "0.5.8"
 dependencies = [
  "bitflags 2.4.2",
  "env_logger",
  "log",
  "thiserror",
- "ygw 0.5.7",
+ "ygw",
 ]
 
 [[package]]

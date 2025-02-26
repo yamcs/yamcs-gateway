@@ -18,7 +18,7 @@
 //!  4. When the decoder quits, the channels between the decoder and the nodes gets closed and all the nodes are supposed to terminate graceful.
 //!  5. After all the nodes have terminated, the channel between the nodes and the encoder closes and then the encoder closes as well.
 //!  6. Finally the writers and the recorder will close after the channel coming from the encoder closes.
-
+const MAX_FRAME_LENGTH: usize = 16 * 1024 * 1024;
 use std::{
     collections::HashMap,
     net::SocketAddr,
@@ -564,7 +564,9 @@ async fn reader_task(
     decoder_tx: Sender<Bytes>,
     cancel_token: CancellationToken,
 ) -> Result<()> {
-    let mut stream = FramedRead::new(read_sock, LengthDelimitedCodec::new());
+    let mut codec = LengthDelimitedCodec::new();
+    codec.set_max_frame_length(MAX_FRAME_LENGTH);
+    let mut stream = FramedRead::new(read_sock, codec);
 
     loop {
         select! {
@@ -643,11 +645,15 @@ mod tests {
     #[tokio::test]
     async fn test_frame_too_long() {
         let (addr, _node_id, _node_tx, _node_rx) = setup_test().await;
+        println!("addr: {:?}", addr);
 
         let mut conn = TcpStream::connect(addr).await.unwrap();
-        //max frame size is 8MB
-        conn.write_u32(8 * 1024 * 1024 + 1).await.unwrap();
-        let r = conn.read_u32_le().await.unwrap_err();
+        conn.write_u32((MAX_FRAME_LENGTH + 1) as u32).await.unwrap();
+
+        let mut buf = vec![0; 1024];
+        let _ = conn.read_buf(&mut buf).await.unwrap();
+
+        let r = conn.read_u32().await.unwrap_err();
         assert_eq!(ErrorKind::UnexpectedEof, r.kind());
     }
 
@@ -664,29 +670,33 @@ mod tests {
             .send(YgwMessage::TmPacket(
                 Addr::new(node_id, 0),
                 TmPacket {
-                    data: vec![1, 2, 3, 4],
+                    data: vec![1, 2, 3, 7],
                     acq_time: protobuf::now(),
                 },
             ))
             .await
             .unwrap();
 
-        let buf = stream.next().await.unwrap().unwrap();
-        assert_eq!(26, buf.len());
-        assert_eq!([1, 2, 3, 4], buf[22..26]);
+        //first message is the node info
+        let _ = stream.next().await.unwrap().unwrap();
+        let buf2 = stream.next().await.unwrap().unwrap();
+        assert_eq!(34, buf2.len());
+        assert_eq!([1, 2, 3, 7], buf2[30..34]);
     }
 
+    // TODO: this test fails because the EncodedMessage contains 8 bytes recording number whereas Yamcs does send it
+    // we should make the communication symmetrical again by introducing the 8 bytes rn even in the messages coming from Yamcs
     #[tokio::test]
     async fn test_tc() {
-        //env_logger::init();
+        env_logger::init();
         let (addr, node_id, _node_tx, mut node_rx) = setup_test().await;
 
         let mut conn = TcpStream::connect(addr).await.unwrap();
         let pc = prepared_cmd();
         let msg = YgwMessage::TcPacket(Addr::new(node_id, 0), pc.clone());
-        let buf = msg.encode(0);
+        let enc_msg = msg.encode(0);
 
-        conn.write_all(&buf).await.unwrap();
+        conn.write_all(&enc_msg).await.unwrap();
 
         let msg1 = node_rx.recv().await.unwrap();
 
@@ -770,7 +780,7 @@ mod tests {
         };
 
         let dn = DummyNode { props, tx };
-        let addr = ([127, 0, 0, 1], 56789).into();
+        let addr = ([127, 0, 0, 1], 0).into();
         let server = ServerBuilder::new()
             .set_addr(addr)
             .add_node(Box::new(dn))

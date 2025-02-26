@@ -242,17 +242,3 @@ async fn execute_cmd(
     }
     Ok(())
 }
-
-
-// checks that the fqn ends in "/" + cmd_name
-fn check_name(fqn: &str, cmd_name: &str) -> bool {
-    if fqn.len() < cmd_name.len()  + 1 {
-        return false;
-    }
-    let idx = fqn.len() - cmd_name.len() -1;
-
-    if &fqn[idx..idx+1] != "/" {
-        return false;
-    }
-    &fqn[idx+1..] == cmd_name
-}
