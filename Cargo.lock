@@ -733,7 +733,7 @@ dependencies = [
  "env_logger",
  "log",
  "tokio",
- "ygw",
+ "ygw 0.5.8",
  "ygw-macros",
 ]
 
@@ -1256,6 +1256,29 @@ dependencies = [
 ]
 
 [[package]]
+name = "ygw"
+version = "0.5.8"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "df18f3988429379498bc33dbbd56eecd8971aec9eb217778d901e51808f5fb45"
+dependencies = [
+ "async-trait",
+ "byteorder",
+ "bytes",
+ "env_logger",
+ "futures",
+ "log",
+ "prost",
+ "prost-build",
+ "prost-types",
+ "thiserror",
+ "tokio",
+ "tokio-stream",
+ "tokio-util",
+ "yaml-rust",
+ "zstd",
+]
+
+[[package]]
 name = "ygw-macros"
 version = "0.2.0"
 dependencies = [
@@ -1272,7 +1295,7 @@ dependencies = [
  "env_logger",
  "log",
  "thiserror",
- "ygw",
+ "ygw 0.5.8 (registry+https://github.com/rust-lang/crates.io-index)",
 ]
 
 [[package]]

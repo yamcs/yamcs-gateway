@@ -10,8 +10,8 @@ keywords = ["Yamcs", "EGSE", "Satellite", "Spacecraft"]
 categories = ["aerospace"]
 
 [dependencies]
-#ygw = "0.5.8"
-ygw = {path = "../ygw"}
+ygw = "0.5.8"
+#ygw = {path = "../ygw"}
 bitflags = "2.4.1"
 env_logger = "0.11"
 log = "0.4"
