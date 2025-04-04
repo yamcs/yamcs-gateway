@@ -14,6 +14,7 @@ use crate::{
 const VERSION: u8 = 0;
 
 pub const ACKNOWLEDGE_SENT_KEY: &str = "Acknowledge_Sent_YGW";
+pub const COMMAND_COMPLETE_KEY: &str = "CommandComplete";
 
 #[derive(Debug, Clone, Copy, PartialEq)]
 pub struct Addr {

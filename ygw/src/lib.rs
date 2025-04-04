@@ -2,15 +2,15 @@ pub mod msg;
 pub mod ygw_server;
 
 pub mod nodes {
-    pub mod tc_udp;
-    pub mod tm_udp;
-    pub mod shellcmd;
     #[cfg(feature = "ping")]
     pub mod pingnode;
-    #[cfg(feature = "socketcan")]
-    pub mod ygw_socketcan;
+    pub mod shellcmd;
+    pub mod tc_udp;
+    pub mod tm_udp;
     #[cfg(feature = "serial")]
     pub mod tmtc_serial;
+    #[cfg(feature = "socketcan")]
+    pub mod ygw_socketcan;
 }
 pub mod protobuf;
 
@@ -22,11 +22,14 @@ pub mod utc_converter;
 use std::{io, sync::atomic::AtomicU32};
 
 use async_trait::async_trait;
-use msg::{Addr, YgwMessage, ACKNOWLEDGE_SENT_KEY};
+use msg::{Addr, YgwMessage, ACKNOWLEDGE_SENT_KEY, COMMAND_COMPLETE_KEY};
 
 use protobuf::ygw::{command_ack::AckStatus, CommandId};
 use thiserror::Error;
-use tokio::{sync::mpsc::{Receiver, Sender}, task::JoinError};
+use tokio::{
+    sync::mpsc::{Receiver, Sender},
+    task::JoinError,
+};
 
 static PARAMETER_ID_GENERATOR: AtomicU32 = AtomicU32::new(0);
 
@@ -181,10 +184,22 @@ impl Link {
             id: self.id,
             name: self.props.name.clone(),
             description: Some(self.props.description.clone()),
-            tm_packet: if self.props.tm_packet { Some(true) } else { None },
+            tm_packet: if self.props.tm_packet {
+                Some(true)
+            } else {
+                None
+            },
             tc: if self.props.tc { Some(true) } else { None },
-            tm_frame: if self.props.tm_frame { Some(true) } else { None },
-            tc_frame: if self.props.tc_frame { Some(true) } else { None },
+            tm_frame: if self.props.tm_frame {
+                Some(true)
+            } else {
+                None
+            },
+            tc_frame: if self.props.tc_frame {
+                Some(true)
+            } else {
+                None
+            },
         }
     }
 }
@@ -290,6 +305,7 @@ pub async fn ack_command(
         .map_err(|_| YgwError::ServerShutdown)
 }
 
+//publishes a NACK for Sent_YGW acknowledgment
 pub async fn nack_command(
     tx: &mut Sender<YgwMessage>,
     link_addr: Addr,
@@ -300,6 +316,29 @@ pub async fn nack_command(
         command_id: command_id,
         ack: AckStatus::Nok as i32,
         key: ACKNOWLEDGE_SENT_KEY.into(),
+        time: protobuf::now(),
+        message: Some(message),
+        return_pv: None,
+    };
+
+    tx.send(YgwMessage::TcAck(link_addr, ack))
+        .await
+        .map_err(|_| YgwError::ServerShutdown)
+}
+
+//publishes a NACK for Sent_YGW and CommandComplete
+pub async fn fail_command(
+    tx: &mut Sender<YgwMessage>,
+    link_addr: Addr,
+    command_id: CommandId,
+    message: String,
+) -> Result<()> {
+    nack_command(tx, link_addr, command_id.clone(), message.clone()).await?;
+
+    let ack = protobuf::ygw::CommandAck {
+        command_id: command_id,
+        ack: AckStatus::Nok as i32,
+        key: COMMAND_COMPLETE_KEY.into(),
         time: protobuf::now(),
         message: Some(message),
         return_pv: None,
