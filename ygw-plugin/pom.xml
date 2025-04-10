@@ -112,7 +112,7 @@
 						<configuration>
 							<protocVersion>3.21.12</protocVersion>
 							<inputDirectories>
-								<include>../proto</include>
+								<include>src/main/proto</include>
 							</inputDirectories>
 							<outputTargets>
 								<outputTarget>
@@ -130,7 +130,7 @@
 			<plugin>
 				<groupId>org.yamcs</groupId>
 				<artifactId>yamcs-maven-plugin</artifactId>
-				<version>1.3.1</version>
+				<version>1.3.5</version>
 				<executions>
 					<execution>
 						<goals>
