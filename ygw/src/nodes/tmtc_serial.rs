@@ -3,11 +3,14 @@ use crate::{
     msg::{Addr, TmFrame, YgwMessage},
     protobuf, LinkStatus, Result, YgwError, YgwLinkNodeProperties, YgwNode,
 };
+use std::time;
+
 use async_trait::async_trait;
 use bytes::BytesMut;
 use futures::{SinkExt, StreamExt};
 use std::str;
 use tokio::sync::mpsc::{Receiver, Sender};
+use tokio::time as tokio_time;
 use tokio_serial::SerialStream;
 use tokio_util::codec::{Decoder, Encoder};
 
@@ -53,10 +56,11 @@ impl YgwNode for TmTcSerialNode {
 
         let mut framed = codec.framed(self.serial_stream);
         let mut link_status = LinkStatus::new(addr);
+        let mut interval = tokio_time::interval(time::Duration::from_secs(1));
 
         loop {
             tokio::select! {
-            msg = rx.recv() => {
+                msg = rx.recv() => {
                     match msg {
                         Some(msg) => {
                         if let YgwMessage::TcFrame(_addr, frame) = msg {
@@ -84,6 +88,9 @@ impl YgwNode for TmTcSerialNode {
                         Some(Err(e)) => return Err(YgwError::Other(Box::new(e))),
                         None => break,
                     }
+                }
+                _ = interval.tick() => {
+                    link_status.send(&tx).await?
                 }
             }
         }

@@ -811,7 +811,7 @@ dependencies = [
  "env_logger",
  "log",
  "tokio",
- "ygw 0.7.1",
+ "ygw 0.7.2",
  "ygw-macros",
 ]
 
@@ -1396,7 +1396,7 @@ dependencies = [
 
 [[package]]
 name = "ygw"
-version = "0.7.1"
+version = "0.7.2"
 dependencies = [
  "async-trait",
  "byteorder",
