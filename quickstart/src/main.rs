@@ -1,5 +1,7 @@
 pub mod mynode;
 
+use std::net::SocketAddr;
+
 use mynode::MyNode;
 use ygw::{
     nodes::{
@@ -9,7 +11,6 @@ use ygw::{
         tm_udp::TmUdpNode,
         ygw_socketcan::CanNode,
     },
-    protobuf::ygw::ParameterDefinition,
     ygw_server::ServerBuilder,
     Result,
 };
@@ -77,7 +78,9 @@ async fn main() -> Result<()> {
         .await?
         .build();
 
+    let replay_addr: SocketAddr = ([127, 0, 0, 1], 7898).into();
     let server = ServerBuilder::new()
+        .with_record_replay_conf(Some(("/tmp/ygw".into(), replay_addr)))
         .add_node(Box::new(node1))
         .add_node(Box::new(node2))
         .add_node(Box::new(node3))
@@ -88,12 +91,9 @@ async fn main() -> Result<()> {
 
     let handle = server.start().await?;
 
-    if let Err(err) = handle.jh.await {
+    if let Err(err) = handle.run().await {
         println!("server terminated with error {:?}", err);
     }
 
-    let _pd = ParameterDefinition {
-        ..Default::default()
-    };
     Ok(())
 }

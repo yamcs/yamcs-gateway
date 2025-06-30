@@ -19,11 +19,7 @@
 //!  5. After all the nodes have terminated, the channel between the nodes and the encoder closes and then the encoder closes as well.
 //!  6. Finally the writers and the recorder will close after the channel coming from the encoder closes.
 const MAX_FRAME_LENGTH: usize = 16 * 1024 * 1024;
-use std::{
-    collections::HashMap,
-    net::SocketAddr,
-    path::{Path, PathBuf},
-};
+use std::{collections::HashMap, net::SocketAddr, path::PathBuf};
 
 use bytes::Bytes;
 
@@ -48,6 +44,7 @@ use crate::{
     msg::{self, Addr, EncodedMessage, YgwMessage},
     protobuf::{self, ygw::MessageType},
     recorder::Recorder,
+    replay_server::start_replay_server,
     Link, Result, YgwError, YgwLinkNodeProperties, YgwNode,
 };
 
@@ -59,13 +56,13 @@ pub enum CtrlMessage {
 pub struct Server {
     nodes: Vec<Box<dyn YgwNode>>,
     addr: SocketAddr,
-    recorder_path: Option<PathBuf>,
+    record_replay_conf: Option<(PathBuf, SocketAddr)>,
 }
 
 pub struct ServerBuilder {
     nodes: Vec<Box<dyn YgwNode>>,
     addr: SocketAddr,
-    recorder_path: Option<PathBuf>,
+    record_replay_conf: Option<(PathBuf, SocketAddr)>,
 }
 
 impl Default for ServerBuilder {
@@ -81,7 +78,7 @@ impl ServerBuilder {
         Self {
             addr: ([127, 0, 0, 1], 7897).into(),
             nodes: Vec::new(),
-            recorder_path: None,
+            record_replay_conf: None,
         }
     }
 
@@ -95,8 +92,11 @@ impl ServerBuilder {
         self
     }
 
-    pub fn with_recorder_path(mut self, path: &Path) -> Self {
-        self.recorder_path.replace(path.to_owned());
+    pub fn with_record_replay_conf(
+        mut self,
+        record_replay_conf: Option<(PathBuf, SocketAddr)>,
+    ) -> Self {
+        self.record_replay_conf = record_replay_conf;
         self
     }
 
@@ -104,7 +104,7 @@ impl ServerBuilder {
         Server {
             nodes: self.nodes,
             addr: self.addr,
-            recorder_path: self.recorder_path,
+            record_replay_conf: self.record_replay_conf,
         }
     }
 }
@@ -158,8 +158,25 @@ impl Server {
                 async move { accepter_task(ctrl_tx, socket, decoder_tx, cancel_token2).await },
             );
 
+        let cancel_token2 = cancel_token.clone();
+        let cancel_token3 = cancel_token.clone();
+
         let encoder_jh = tokio::spawn(async move {
-            encoder_task(ctrl_rx, encoder_rx, node_data, self.recorder_path).await
+            if let Err(e) = encoder_task(
+                ctrl_rx,
+                encoder_rx,
+                node_data,
+                self.record_replay_conf,
+                cancel_token2,
+            )
+            .await
+            {
+                log::error!("Encoder task failed: {:?}", e);
+                cancel_token3.cancel();
+                Err(e)
+            } else {
+                Ok(())
+            }
         });
 
         let decoder_jh = tokio::spawn(async move { decoder_task(decoder_rx, node_tx_map).await });
@@ -178,6 +195,42 @@ impl Server {
             addr,
             cancel_token,
         })
+    }
+}
+
+impl ServerHandle {
+    pub async fn run(self) -> Result<()> {
+        let ServerHandle {
+            jh, cancel_token, ..
+        } = self;
+
+        // Spawn a task to listen for shutdown signals
+        tokio::spawn(async move {
+            #[cfg(unix)]
+            {
+                use tokio::signal::unix::{signal, SignalKind};
+                let mut sigint = signal(SignalKind::interrupt())?;
+                let mut sigterm = signal(SignalKind::terminate())?;
+                tokio::select! {
+                    _ = sigint.recv() => log::info!("Received SIGINT"),
+                    _ = sigterm.recv() => log::info!("Received SIGTERM"),
+                }
+            }
+
+            #[cfg(windows)]
+            {
+                tokio::signal::ctrl_c().await?;
+                log::info!("Received Ctrl+C");
+            }
+
+            cancel_token.cancel();
+            Ok::<(), std::io::Error>(())
+        });
+
+        match jh.await {
+            Ok(result) => result,
+            Err(e) => Err(e.into()),
+        }
     }
 }
 
@@ -256,7 +309,7 @@ impl NodeData {
                 Some(true)
             } else {
                 None
-            },            
+            },
             tc: if self.props.tc { Some(true) } else { None },
             tc_frame: if self.props.tc_frame {
                 Some(true)
@@ -275,14 +328,15 @@ async fn encoder_task(
     mut ctrl_rx: Receiver<CtrlMessage>,
     mut encoder_rx: Receiver<YgwMessage>,
     mut nodes: HashMap<u32, NodeData>,
-    recorder_path: Option<PathBuf>,
+    recorder_replay_conf: Option<(PathBuf, SocketAddr)>,
+    cancel_token: CancellationToken,
 ) -> Result<()> {
     let mut connections: Vec<YamcsConnection> = Vec::new();
 
     let mut rn = 0;
-    let recorder_tx: Option<Sender<EncodedMessage>> = match recorder_path {
+    let recorder_tx: Option<Sender<EncodedMessage>> = match recorder_replay_conf {
         None => None,
-        Some(dir) => {
+        Some((dir, replay_addr)) => {
             log::info!(
                 "Encoder: starting recorder with recording directory {}",
                 dir.display()
@@ -291,8 +345,26 @@ async fn encoder_task(
             if let Some(last_rn) = last_rn {
                 rn = last_rn + 1;
             }
+
             let (recorder_tx, recorder_rx) = tokio::sync::mpsc::channel(100);
-            tokio::spawn(async move { recorder.record(recorder_rx).await });
+            let (query_tx, query_rx) = tokio::sync::mpsc::channel(16); // For file queries
+
+            // Spawn the recorder task
+            tokio::spawn(async move {
+                if let Err(e) = recorder.record(recorder_rx, query_rx).await {
+                    log::error!("Recorder exited with error: {:?}", e);
+                }
+            });
+
+            log::info!(
+                "Encoder: starting the replay server listening on {}",
+                replay_addr
+            );
+            tokio::spawn(async move {
+                if let Err(e) = start_replay_server(replay_addr, query_tx, cancel_token).await {
+                    log::error!("Replay server exited with error: {:?}", e);
+                }
+            });
 
             Some(recorder_tx)
         }
@@ -659,7 +731,6 @@ mod tests {
     #[tokio::test]
     async fn test_frame_too_long() {
         let (addr, _node_id, _node_tx, _node_rx) = setup_test().await;
-        println!("addr: {:?}", addr);
 
         let mut conn = TcpStream::connect(addr).await.unwrap();
         conn.write_u32((MAX_FRAME_LENGTH + 1) as u32).await.unwrap();

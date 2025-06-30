@@ -5,19 +5,19 @@
 //! part 1 - header
 //! - MAGIC - the string YGW_REC (7 bytes)
 //! - format version (1 byte) - current version is 1
-//! - first record number (8 bytes)
+//! - first record number - first_rec_num  (8 bytes) - this has to match the filename
 //! - maximum number of segments (4 bytes)
 //!
 //! then for each segment 9 bytes segment information consisting of:
 //! - metadata (1 byte) - currently only if the segment contains parameter definitions
-//! - size (4 bytes)
-//! - the number of the last record in the segment, relative to the first record number defined above (4 bytes)
+//! - segment size (4 bytes) - used to be able to skip over entire segments when replaying from the middle of the file
+//! - the number of the last record in the segment, relative to first_rec_num (4 bytes)
 //!
 //! part 2 - data - formed by segments one after each-other
 //! the segments are zstd compressed data composed of records.
 //! Each record consists of:
-//! - record length  (without the size itself) (4 bytes)
-//! - record number relative to the first record number defined above (4 bytes)
+//! - record length  (without the length itself) (4 bytes)
+//! - record number relative to first_rec_num (4 bytes)
 //! - record data (length - 4)
 //!
 //! The trick with the zstd decoder is that it can decode segments concatenated one after eachother;
@@ -109,7 +109,7 @@ pub struct FileRecorder<'a> {
     /// maximum number of records in each segment
     max_nrps: u32,
     /// number of the last record written (relative to the first_rec_num)
-    last_rn: u32,
+    pub last_rn: u32,
 }
 
 impl<'a> FileRecorder<'_> {
@@ -166,16 +166,19 @@ impl<'a> FileRecorder<'_> {
     /// append the record to the end of the file
     pub fn append(&mut self, rn: u64, msg: &[u8], is_pdef: bool) -> Result<()> {
         let Some(ref mut encoder) = self.encoder else {
-            return Err(crate::YgwError::RecordingFileFull(self.max_num_segments));
+            return Err(YgwError::RecordingFileFull(self.max_num_segments));
         };
-        let rn =  (rn-self.first_rec_num).try_into().expect(&format!("the record number {rn} is too high compared with the first record number of the file {}", self.first_rec_num));
+
+        let local_rn =  (rn-self.first_rec_num).try_into().expect(&format!("the record number {rn} is too high compared with the first record number of the file {}", self.first_rec_num));
+
+        log::trace!("Appending rn={}, local_rn={}", rn, local_rn);
 
         encoder.write_u32::<BigEndian>(4 + msg.len() as u32)?;
-        encoder.write_u32::<BigEndian>(rn)?;
+        encoder.write_u32::<BigEndian>(local_rn)?;
         encoder.write_all(msg)?;
         self.has_pdef |= is_pdef;
         self.num_records += 1;
-        self.last_rn = rn;
+        self.last_rn = local_rn;
 
         if self.num_records >= self.max_nrps {
             self.end_segment(true)?;
@@ -207,11 +210,6 @@ impl<'a> FileRecorder<'_> {
             self.seg_num,
             offset,
             self.last_rn
-        );
-
-        println!(
-            "Ending segment {}; start: {},  end {}, last_rn: {}",
-            self.seg_num, self.offset, offset, self.last_rn
         );
 
         let size = seg_size(offset, self.offset);
@@ -400,7 +398,7 @@ impl<'a> FilePlayer {
 
     /// returns an iterator that iterates over all records starting with seg_num segment
     /// the position of the segment is based on the correct metadata information for the previous segments
-    pub fn iter_from(&mut self, seg_num: u32) -> Result<FilePlayerIterator> {
+    pub fn iter_from_segment(&mut self, seg_num: u32) -> Result<FilePlayerIterator> {
         let mut file = self.file.try_clone()?;
 
         let offset = self
@@ -415,6 +413,38 @@ impl<'a> FilePlayer {
         let decoder = Some(zstd::Decoder::new(file)?);
 
         Ok(FilePlayerIterator { fr: self, decoder })
+    }
+
+    /// Returns an iterator that starts from the segment that contains or comes after the given record number (absolute `rn`).
+    /// If `rn` is outside the file range, returns an empty iterator.
+    pub fn iter_from_segment_with_rn(&mut self, rn: u64) -> Result<FilePlayerIterator> {
+        if rn < self.first_rec_num {
+            // Start from the beginning
+            return self.iter_from_segment(0);
+        }
+        let rel_rn = (rn - self.first_rec_num) as u32;
+
+        // Find the first segment whose last_rn >= rel_rn
+        let mut seg_num = None;
+        for (i, seg) in self.segments.iter().enumerate() {
+            if seg.size == 0 {
+                break; // no valid segments after this point
+            }
+            if seg.last_rn >= rel_rn {
+                seg_num = Some(i as u32);
+                break;
+            }
+        }
+
+        if let Some(seg_num) = seg_num {
+            self.iter_from_segment(seg_num)
+        } else {
+            // rn is after the last record in the file
+            Ok(FilePlayerIterator {
+                fr: self,
+                decoder: None,
+            })
+        }
     }
 
     pub fn get_data_start_offset(&self) -> u64 {
@@ -435,8 +465,6 @@ impl<'a> FilePlayer {
 ///  - if there is a segment of size>0 following a segment of size 0
 ///  - if the last record numbers are not increasing
 fn verify_consistency(segments: &[SegmentInfo]) -> Result<()> {
-    println!("verifying consistency of segments {:?}", segments);
-
     for i in 1..segments.len() {
         if segments[i - 1].size == 0 && segments[i].size > 0 {
             return Err(YgwError::CorruptedRecordingFile(format!(

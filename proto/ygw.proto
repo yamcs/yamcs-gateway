@@ -13,8 +13,19 @@
 //! The data is the corresponding protobuf encoded message except when the type = TM
 //! For TM the data is composed by a 12 bytes timestamp followed by the TM packet data
 //!
-//! The format of the messages sent from Yamcs to the Gateway is the same, except for the 8 byte recording number which is not present
-
+//! The format of the messages sent from Yamcs to the Gateway is the same, except for the 8 byte rn which is not present
+//!
+//! Recording and replaying
+//! If configured, the gateway records data locally, giving each recording a number (rn) starting with 1. When Yamcs connects, the gateway will first rn a
+//! series of messages such as node information and parameter definition with rn=0, followed by the data with rn>0. Yamcs will know the last rn it has received
+//! when it was previously connected and will perform a replay request on a different port
+//!
+//! The replay request message sent over the replay socket is as follows:
+//! 1. `length`: uint32 - the length of the message without the length itself.
+//! 2. `VERSION`: uint8 - the version of the message format. Currently only the version 0 exists.
+//! 3. data - protobuf encoding of the ReplayRequest message below
+//!
+//! The gateway will send all the recorded data using the format above (same as for the main connection) and will close the socket at the end
 
 syntax = "proto2";
 
@@ -321,4 +332,10 @@ message CommandOption {
 
 message CommandOptionList {
    repeated CommandOption options = 1;
+}
+
+//this message is sent over the replay socket to request a replay for the recordings [startRn, stopRn]
+message ReplayRequest {
+    required uint64 startRn = 1;
+    required uint64 stopRn = 2;
 }

@@ -178,7 +178,6 @@ async fn on_yamcs_msg(
     socket: &mut CanSocket,
     msg: YgwMessage,
 ) -> Result<()> {
-    println!("received message from yamcs {:?}", msg);
     match msg {
         YgwMessage::Tc(_, cmd) => execute_cmd(state, socket, cmd).await?,
         YgwMessage::LinkCommand(_, _) => todo!(),

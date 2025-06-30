@@ -1,6 +1,6 @@
 [package]
 name = "ygw"
-version = "0.7.2"
+version = "0.8.0"
 edition = "2021"
 license = "MIT"
 description = "The goal of Yamcs Gateway is to allow Yamcs to control instruments/payloads as part of an EGSE."

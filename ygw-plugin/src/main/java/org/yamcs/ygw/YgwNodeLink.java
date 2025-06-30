@@ -52,16 +52,22 @@ public class YgwNodeLink extends AbstractTcTmParamLink implements AggregatedData
     /** node or sub-link description */
     final String description;
 
+    // if true, this is a replay link
+    final boolean replay;
+
     /** the top link known by Yamcs - corresponds to the connection to the gateway */
     final YgwLink ygwLink;
 
-    /** only for sub-links - the parent node link */
-    final YgwNodeLink parent;
+    /** the parent node link */
+    final AggregatedDataLink parent;
 
     final boolean tmPacketEnabled;
     final boolean tcEnabled;
     final boolean tmFrameEnabled;
     final boolean tcFrameEnabled;
+
+    String tmStreamName;
+    String ppStreamName;
 
     final Map<Integer, YgwNodeLink> subLinks = new HashMap<>();
 
@@ -78,14 +84,17 @@ public class YgwNodeLink extends AbstractTcTmParamLink implements AggregatedData
      * 
      * Builds an object corresponding to a gateway node.
      */
-    public YgwNodeLink(YgwLink ygwLink, Node node) {
+    public YgwNodeLink(YgwLink ygwLink, Node node, AggregatedDataLink parent, boolean replay) {
         this.ygwLink = ygwLink;
         this.nodeId = node.getId();
+        this.replay = replay;
+        this.parent = parent;
+
         this.name = node.getName();
         this.description = node.getDescription();
         this.linkId = 0;
         this.tmPacketEnabled = node.hasTmPacket() && node.getTmPacket();
-        this.tcEnabled = node.hasTc() && node.getTc();
+        this.tcEnabled = !replay && node.hasTc() && node.getTc();
         this.tmFrameEnabled = node.hasTmFrame() && node.getTmFrame();
         this.tcFrameEnabled = node.hasTcFrame() && node.getTcFrame();
 
@@ -98,19 +107,23 @@ public class YgwNodeLink extends AbstractTcTmParamLink implements AggregatedData
             throw new IllegalArgumentException(
                     "Cannot enable both TC packet and frames for link " + name + ". Check the ygw configuration");
         }
-        this.parent = null;
+
     }
 
     /**
      * 
      * Builds an object corresponding to a gateway sub-link.
+     * <p>
+     * If replayLink is not null, this is used for replays
      */
-    public YgwNodeLink(YgwLink ygwLink, YgwNodeLink parent, org.yamcs.ygw.protobuf.Ygw.Link link) {
+    public YgwNodeLink(YgwLink ygwLink, YgwNodeLink parent, org.yamcs.ygw.protobuf.Ygw.Link link,
+            boolean replay) {
         this.ygwLink = ygwLink;
         this.nodeId = parent.nodeId;
         this.parent = parent;
         this.linkId = link.getId();
         this.name = link.getName();
+        this.replay = replay;
         this.description = link.getDescription();
         this.tmPacketEnabled = link.hasTmPacket() && link.getTmPacket();
         this.tcEnabled = link.hasTc() && link.getTc();
@@ -130,6 +143,11 @@ public class YgwNodeLink extends AbstractTcTmParamLink implements AggregatedData
     @Override
     public void init(String instance, String name, YConfiguration config) {
         super.init(instance, name, config);
+        if (tmPacketEnabled || tmFrameEnabled) {
+            tmStreamName = replay ? config.getString("tmReplayStream") : config.getString("tmStream");
+        }
+        ppStreamName = replay ? config.getString("ppReplayStream", null) : config.getString("ppStream", null);
+
         if (tmFrameEnabled) {
             if (!config.containsKey(TM_FRAME_CONFIG_SECTION)) {
                 log.warn("Node " + name
@@ -175,21 +193,25 @@ public class YgwNodeLink extends AbstractTcTmParamLink implements AggregatedData
         if (ygwLink.connectionStatus() != Status.OK) {
             return ygwLink.connectionStatus();
         }
-        if (linkStatus == null) {
-            return Status.UNAVAIL;
-        }
+        if (replay) {
+            return parent.getLinkStatus();
+        } else {
+            if (linkStatus == null) {
+                return Status.UNAVAIL;
+            }
 
-        switch (linkStatus.getState()) {
-        case DISABLED:
-            return Status.DISABLED;
-        case FAILED:
-            return Status.FAILED;
-        case OK:
-            return Status.OK;
-        case UNAVAIL:
-            return Status.UNAVAIL;
-        default:
-            throw new IllegalStateException();
+            switch (linkStatus.getState()) {
+            case DISABLED:
+                return Status.DISABLED;
+            case FAILED:
+                return Status.FAILED;
+            case OK:
+                return Status.OK;
+            case UNAVAIL:
+                return Status.UNAVAIL;
+            default:
+                throw new IllegalStateException();
+            }
         }
     }
 
@@ -220,6 +242,11 @@ public class YgwNodeLink extends AbstractTcTmParamLink implements AggregatedData
                     getName());
             return;
         }
+
+        if (replay) {
+            dataIn(pvList.size(), pvList.size());
+        }
+
         pvList.stream().collect(Collectors.groupingBy(ParameterValue::getGenerationTime))
                 .forEach((t, l) -> parameterSink.updateParameters(t, group, seqNum, pvList));
     }
@@ -239,6 +266,10 @@ public class YgwNodeLink extends AbstractTcTmParamLink implements AggregatedData
             log.warn("Received TM packet on a link {} not enabled for TM packets; ignoring", getName());
             return;
         }
+        if (replay) {
+            dataIn(1, buf.readableBytes());
+        }
+
         long rectime = timeService.getMissionTime();
 
         long millis = buf.readLong();
@@ -279,6 +310,10 @@ public class YgwNodeLink extends AbstractTcTmParamLink implements AggregatedData
             return;
         }
 
+        if (replay) {
+            dataIn(1, buf.readableBytes());
+        }
+
         long millis = buf.readLong();
         int picos = buf.readInt();
 
@@ -301,6 +336,8 @@ public class YgwNodeLink extends AbstractTcTmParamLink implements AggregatedData
     }
 
     public void processLinkStatus(int linkId, LinkStatus lstatus) {
+        assert (!replay);
+
         if (linkId != this.linkId) {
             var subLink = subLinks.get(linkId);
             if (subLink == null) {
@@ -425,7 +462,7 @@ public class YgwNodeLink extends AbstractTcTmParamLink implements AggregatedData
 
     @Override
     public boolean isParameterDataLinkImplemented() {
-        return true;
+        return ppStreamName != null;
     }
 
     public void addSublink(int linkId, YgwNodeLink nodeSublink) {
@@ -440,5 +477,15 @@ public class YgwNodeLink extends AbstractTcTmParamLink implements AggregatedData
             l.addAll(vcSublinks);
         }
         return l;
+    }
+
+    @Override
+    public String getTmStreamName() {
+        return tmStreamName;
+    }
+
+    @Override
+    public String getPpStreamName() {
+        return ppStreamName;
     }
 }

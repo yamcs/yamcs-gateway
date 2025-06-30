@@ -2,7 +2,7 @@ use crate::{
     msg::{Addr, YgwMessage},
     protobuf::{
         self,
-        ygw::{ParameterData, ParameterDefinition, ParameterDefinitionList, ParameterValue, Value},
+        ygw::{ParameterData, ParameterDefinition, ParameterDefinitionList, ParameterValue},
     },
     LinkStatus, Result, YgwError, YgwLinkNodeProperties, YgwNode,
 };
@@ -94,58 +94,70 @@ impl YgwNode for PingNode {
 
         loop {
             tokio::select! {
-                 _ = interval.tick() => {
-                        let now = protobuf::now();
-
-                    // Step 2: Ping all `pinger` instances and collect `ParameterValue`s
-                    let mut ping_futures = Vec::new();
-                    for (pinger, tp) in &mut pingers {
-                        ping_futures.push(ping(pinger, tp, seq, self.timeout_value));
-                    }
-
-                    // Wait for all pings to complete and collect their results
-                    let param_values: Vec<ParameterValue> = futures::future::join_all(ping_futures).await;
-
-                    let count_ok = param_values
-                        .iter()
-                        .filter(
-                            |pv| match pv.eng_value.as_ref().unwrap().v.as_ref().unwrap() {
-                                protobuf::ygw::value::V::FloatValue(val) => !val.is_infinite(),
-                                _ => false,
-                            },
-                        )
-                        .count();
-
-                    // Create a `ParameterData` containing all `ParameterValue`s
-                    let param_data = ParameterData {
-                        parameters: param_values,
-                        group: "ping".into(),
-                        seq_num: seq,
-                        generation_time: Some(now.clone()),
-                        acquisition_time: None,
-                    };
-
-                    // Send the `ParameterData` to Yamcs
-                    tx.send(YgwMessage::ParameterData(addr.clone(), param_data))
-                        .await
-                        .map_err(|_| YgwError::ServerShutdown)?;
-
-                    link_status.data_out(pingers.len() as u64, (pingers.len() * PING_LEN) as u64);
-                    link_status.data_in(count_ok as u64, (count_ok * PING_LEN) as u64);
-
-                    link_status.send(&tx).await?;
-                    seq += 1;
-                }
                 msg = rx.recv() => {
                     match msg {
                         None => break,
                         Some(msg) => log::warn!("Unexpected message received {:?}", msg)
                     }
                 }
+              _ = interval.tick() => {
+                    let now = protobuf::now();
+
+                    // Ping all `pinger` instances and collect `ParameterValue`s
+                    let mut ping_futures = Vec::new();
+                    for (pinger, tp) in &mut pingers {
+                        ping_futures.push(ping(pinger, tp, seq, self.timeout_value));
+                    }
+
+                    //we have this inner select in order for the PingNode to quit when a message is received on the rx channel,
+                    // without waiting for the pings to finish
+                    tokio::select! {
+                        param_values = futures::future::join_all(ping_futures) => {
+                            let count_ok = param_values
+                                .iter()
+                                .filter(
+                                    |pv| match pv.eng_value.as_ref().unwrap().v.as_ref().unwrap() {
+                                    protobuf::ygw::value::V::FloatValue(val) => !val.is_infinite(),
+                                    _ => false,
+                                    },
+                                ).count();
+
+                            let param_data = ParameterData {
+                                parameters: param_values,
+                                group: "ping".into(),
+                                seq_num: seq,
+                                generation_time: Some(now.clone()),
+                                acquisition_time: None,
+                            };
+
+
+                            tx.send(YgwMessage::ParameterData(addr.clone(), param_data))
+                                .await
+                                .map_err(|_| YgwError::ServerShutdown)?;
+
+                            link_status.data_out(pingers.len() as u64, (pingers.len() * PING_LEN) as u64);
+                            link_status.data_in(count_ok as u64, (count_ok * PING_LEN) as u64);
+                            link_status.send(&tx).await?;
+                            seq += 1;
+                        }
+                        msg = rx.recv() => {
+                            match msg {
+                                None => break,
+                                Some(msg) => log::warn!("Unexpected message received {:?}", msg)
+                            }
+                            break;
+                        }
+                    }
+
+
+                    link_status.send(&tx).await?;
+                    seq += 1;
+                }
+
             }
         }
 
-        log::debug!("PingNote exiting");
+        log::debug!("PingNode exiting");
 
         Ok(())
     }

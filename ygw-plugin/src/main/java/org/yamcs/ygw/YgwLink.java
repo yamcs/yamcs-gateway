@@ -1,5 +1,8 @@
 package org.yamcs.ygw;
 
+import static org.yamcs.tctm.ccsds.AbstractTcFrameLink.TC_FRAME_CONFIG_SECTION;
+import static org.yamcs.tctm.ccsds.AbstractTmFrameLink.TM_FRAME_CONFIG_SECTION;
+
 import java.io.IOException;
 import java.util.ArrayList;
 import java.util.HashMap;
@@ -11,13 +14,15 @@ import java.util.concurrent.TimeUnit;
 import org.yamcs.ConfigurationException;
 import org.yamcs.Processor;
 import org.yamcs.Spec;
+import org.yamcs.Spec.OptionType;
 import org.yamcs.YConfiguration;
 import org.yamcs.YamcsServer;
 import org.yamcs.YamcsServerInstance;
-import org.yamcs.Spec.OptionType;
 import org.yamcs.events.EventProducerFactory;
 import org.yamcs.logging.Log;
 import org.yamcs.management.LinkManager;
+import org.yamcs.memento.MementoDb;
+import org.yamcs.parameter.ParameterValue;
 import org.yamcs.parameter.SoftwareParameterManager;
 import org.yamcs.tctm.AbstractLink;
 import org.yamcs.tctm.AggregatedDataLink;
@@ -31,6 +36,7 @@ import org.yamcs.ygw.protobuf.Ygw.CommandOptionList;
 import org.yamcs.ygw.protobuf.Ygw.Event;
 import org.yamcs.ygw.protobuf.Ygw.LinkStatus;
 import org.yamcs.ygw.protobuf.Ygw.MessageType;
+import org.yamcs.ygw.protobuf.Ygw.Node;
 import org.yamcs.ygw.protobuf.Ygw.NodeList;
 import org.yamcs.ygw.protobuf.Ygw.ParameterData;
 import org.yamcs.ygw.protobuf.Ygw.ParameterDefinitionList;
@@ -49,9 +55,6 @@ import io.netty.channel.socket.nio.NioSocketChannel;
 import io.netty.handler.codec.LengthFieldBasedFrameDecoder;
 import us.hebi.quickbuf.InvalidProtocolBufferException;
 
-import static org.yamcs.tctm.ccsds.AbstractTmFrameLink.TM_FRAME_CONFIG_SECTION;
-import static org.yamcs.tctm.ccsds.AbstractTcFrameLink.TC_FRAME_CONFIG_SECTION;
-
 /**
  * Yamcs gateway link.
  * <p>
@@ -69,35 +72,47 @@ import static org.yamcs.tctm.ccsds.AbstractTcFrameLink.TC_FRAME_CONFIG_SECTION;
  * <p>
  * Each Gateway node specify itself if it can handle TM/TC and they only added in the processing chain by the
  * {@link LinkManager} if they support TM/TC.
- * <p>
- * TODO: the Yamcs Gateway can record data locally. This link does not yet support the feature to download the recorded
- * data.
  */
 public class YgwLink extends AbstractLink implements AggregatedDataLink {
     final static int MAX_PACKET_LENGTH = 0xFFFF;
     public static final byte VERSION = 0;
     DataSource dataSource;
-
+    final static String MEMENTO_KEY = "YgwLink.lastRn";
     String host;
     int port;
     long reconnectionDelay;
     String mdbPath;
+    boolean replayEnabled;
 
     List<Link> sublinks = new ArrayList<>();
     Map<Integer, YgwNodeLink> nodes = new HashMap<>();
 
-    YfeChannelHandler handler;
+    YgwChannelHandler handler;
     YgwParameterManager paramMgr;
     YgwCommandManager cmdMgr;
+    YgwReplayLink replayLink;
 
     // this is the processor to which we listen for parameter updates
     String parameterProcessorName;
+    long lastRn;
+    long lastSavedRn;
 
     @Override
     public void init(String instance, String name, YConfiguration config) {
         super.init(instance, name, config);
         this.host = config.getString("host");
         this.port = config.getInt("port");
+        this.replayEnabled = config.getBoolean("replayEnabled");
+        if (replayEnabled) {
+            int replayPort = config.getInt("replayPort");
+            replayLink = new YgwReplayLink(this, host, replayPort);
+
+            var mementoDb = MementoDb.getInstance(instance);
+            lastRn = mementoDb.getNumber(MEMENTO_KEY).orElse(0).longValue();
+            log.debug("Read from memento lastRn: {}", lastRn);
+            lastSavedRn = lastRn;
+            System.out.println("Read from memento lastRn: " + lastRn);
+        }
         this.reconnectionDelay = config.getLong("reconnectionDelay");
         this.mdbPath = config.getString("mdbPath");
 
@@ -115,7 +130,7 @@ public class YgwLink extends AbstractLink implements AggregatedDataLink {
         spec.addOption("host", OptionType.STRING).withRequired(true)
                 .withDescription("The host to connect to the Yamcs gateway");
 
-        spec.addOption("port", OptionType.INTEGER)
+        spec.addOption("port", OptionType.INTEGER).withDefault(7897)
                 .withDescription("Port to connect to the Yamcs gateway");
 
         spec.addOption("reconnectionDelay", OptionType.INTEGER).withDefault(5000)
@@ -144,6 +159,16 @@ public class YgwLink extends AbstractLink implements AggregatedDataLink {
         spec.addOption("nodes", OptionType.MAP).withSpec(Spec.ANY)
                 .withDescription("This map can contain configuration overrides for the different nodes");
 
+        // replay options
+        spec.addOption("replayEnabled", OptionType.BOOLEAN).withDefault(false)
+                .withDescription("Retrieve from the gateway data whch has not been received in realtime");
+        spec.addOption("replayPort", OptionType.INTEGER).withDefault(7898)
+                .withDescription("Port to connect to the Yamcs gateway for replay");
+        spec.addOption("tmReplayStream", OptionType.STRING)
+                .withDescription("Name of the stream to used for the replay TM");
+        spec.addOption("ppReplayStream", OptionType.STRING)
+                .withDescription("Name of the stream to use for the replay PP");
+
         var tmFrameSpec = new Spec();
         AbstractTmFrameLink.addDefaultOptions(tmFrameSpec);
         spec.addOption(TM_FRAME_CONFIG_SECTION, OptionType.MAP).withSpec(tmFrameSpec);
@@ -154,7 +179,16 @@ public class YgwLink extends AbstractLink implements AggregatedDataLink {
     }
 
     void connect() {
-        handler = new YfeChannelHandler();
+        if (!isRunningAndEnabled()) {
+            return;
+        }
+
+        if (handler != null) {
+            handler.stop();
+            handler = null;
+        }
+
+        handler = new YgwChannelHandler();
         NioEventLoopGroup workerGroup = getEventLoop();
         Bootstrap b = new Bootstrap();
         b.group(workerGroup);
@@ -178,53 +212,68 @@ public class YgwLink extends AbstractLink implements AggregatedDataLink {
                 log.info("Connected to the Yamcs gateway at {}:{}", host, port);
             }
         });
-
     }
 
-    public void updateNodes(NodeList nodeList) {
+    private void updateNodes(NodeList nodeList) {
         log.info("Received list of nodes from the gateway: {}", nodeList);
         sublinks.clear();
         nodes.clear();
-        var nodesConfig = config.getConfigOrEmpty("nodes");
 
         for (var node : nodeList.getNodes()) {
-            YgwNodeLink nodeLink = new YgwNodeLink(this, node);
-
-            Map<String, Object> nodeConfigMap = new HashMap(nodesConfig.getConfigOrEmpty(node.getName()).getRoot());
-            config.getRoot().forEach((key, value) -> {
-                if (!"nodes".equals(key))
-                    nodeConfigMap.putIfAbsent(key, value);
-            });
-            YConfiguration nodeConfig = YConfiguration.wrap(nodeConfigMap);
-            log.debug("Adding node {} with config", nodeConfig);
-
-            nodeLink.init(yamcsInstance, linkName + "." + nodeLink.name, nodeConfig);
-
+            YgwNodeLink nodeLink = createNodeLink(node, false);
             sublinks.add(nodeLink);
             nodes.put(nodeLink.nodeId, nodeLink);
+        }
 
-            var linksConfig = nodeConfig.getConfigOrEmpty("links");
+        if (replayEnabled) {
+            replayLink.cleanNodes();
+            replayLink.init(yamcsInstance, linkName + ".replay", YConfiguration.emptyConfig());
 
-            for (var link : node.getLinks()) {
-                YgwNodeLink nodeSublink = new YgwNodeLink(this, nodeLink, link);
-
-                Map<String, Object> nodesubLinkConfigMap = new HashMap(
-                        linksConfig.getConfigOrEmpty(link.getName()).getRoot());
-
-                nodeConfig.getRoot().forEach((key, value) -> {
-                    if (!"links".equals(key)) {
-                        nodesubLinkConfigMap.putIfAbsent(key, value);
-                    }
-                });
-                YConfiguration nodesubLinkConfig = YConfiguration.wrap(nodesubLinkConfigMap);
-                String name = linkName + "." + nodeLink.name + "." + link.getName();
-                log.debug("Adding sublink {} with config {}", name, nodesubLinkConfig);
-                nodeSublink.init(yamcsInstance, name, nodesubLinkConfig);
-                nodeLink.addSublink(link.getId(), nodeSublink);
+            for (var node : nodeList.getNodes()) {
+                YgwNodeLink nodeLink = createNodeLink(node, true);
+                replayLink.addSubLink(nodeLink);
             }
+
+            sublinks.add(replayLink);
         }
         var linkManager = YamcsServer.getServer().getInstance(yamcsInstance).getLinkManager();
         linkManager.configureDataLink(this, config);
+    }
+
+    private YgwNodeLink createNodeLink(Node node, boolean replay) {
+        YgwNodeLink nodeLink = new YgwNodeLink(this, node, replay ? replayLink : this, replay);
+        var nodesConfig = config.getConfigOrEmpty("nodes");
+        Map<String, Object> nodeConfigMap = new HashMap(nodesConfig.getConfigOrEmpty(node.getName()).getRoot());
+        config.getRoot().forEach((key, value) -> {
+            if (!"nodes".equals(key))
+                nodeConfigMap.putIfAbsent(key, value);
+        });
+        YConfiguration nodeConfig = YConfiguration.wrap(nodeConfigMap);
+        log.debug("Adding node {} with config", nodeConfig);
+
+        nodeLink.init(yamcsInstance, linkName + (replay ? ".replay." : ".") + nodeLink.name, nodeConfig);
+
+        var linksConfig = nodeConfig.getConfigOrEmpty("links");
+
+        for (var link : node.getLinks()) {
+            YgwNodeLink nodeSublink = new YgwNodeLink(this, nodeLink, link, replay);
+
+            Map<String, Object> nodesubLinkConfigMap = new HashMap(
+                    linksConfig.getConfigOrEmpty(link.getName()).getRoot());
+
+            nodeConfig.getRoot().forEach((key, value) -> {
+                if (!"links".equals(key)) {
+                    nodesubLinkConfigMap.putIfAbsent(key, value);
+                }
+            });
+            YConfiguration nodesubLinkConfig = YConfiguration.wrap(nodesubLinkConfigMap);
+            String name = linkName + "." + nodeLink.name + "." + link.getName();
+            log.debug("Adding sublink {} with config {}", name, nodesubLinkConfig);
+            nodeSublink.init(yamcsInstance, name, nodesubLinkConfig);
+            nodeLink.addSublink(link.getId(), nodeSublink);
+        }
+
+        return nodeLink;
     }
 
     @Override
@@ -256,9 +305,15 @@ public class YgwLink extends AbstractLink implements AggregatedDataLink {
 
     @Override
     public void doDisable() {
+        if (replayEnabled) {
+            var mementoDb = MementoDb.getInstance(yamcsInstance);
+            mementoDb.putNumber(MEMENTO_KEY, lastRn);
+            lastSavedRn = lastRn;
+        }
         getEventLoop().execute(() -> {
             if (handler != null) {
                 handler.stop();
+                handler = null;
             }
         });
     }
@@ -308,7 +363,9 @@ public class YgwLink extends AbstractLink implements AggregatedDataLink {
 
     @Override
     protected void doStart() {
-        doEnable();
+        if (!isDisabled()) {
+            doEnable();
+        }
         notifyStarted();
     }
 
@@ -343,7 +400,28 @@ public class YgwLink extends AbstractLink implements AggregatedDataLink {
         return cf;
     }
 
-    class YfeChannelHandler extends ChannelInboundHandlerAdapter {
+    public List<ParameterValue> processParameters(int nodeId, ParameterData pdata) {
+        return paramMgr.processParameters(this, nodeId, pdata);
+    }
+
+    private void handleRnUpdate(long rn) {
+        if (lastRn != -1) {
+            if (rn < lastRn) {
+                log.warn("Recording number reset: lastRn={}, rn={}", lastRn, rn);
+                replayLink.cleanReplays();
+            } else if (rn != lastRn + 1) {
+                replayLink.scheduleReplay(lastRn + 1, rn - 1);
+            }
+        }
+        lastRn = rn;
+        if (lastRn - lastSavedRn > 100) {
+            var mementoDb = MementoDb.getInstance(yamcsInstance);
+            mementoDb.putNumber(MEMENTO_KEY, lastRn);
+            lastSavedRn = lastRn;
+        }
+    }
+
+    class YgwChannelHandler extends ChannelInboundHandlerAdapter {
         ChannelHandlerContext ctx;
 
         @Override
@@ -353,8 +431,10 @@ public class YgwLink extends AbstractLink implements AggregatedDataLink {
 
         @Override
         public void channelInactive(ChannelHandlerContext ctx) throws Exception {
-            log.warn("Connection to the Yamcs gateway closed");
-            ctx.executor().schedule(() -> connect(), reconnectionDelay, TimeUnit.MILLISECONDS);
+            if (isRunningAndEnabled()) {
+                log.warn("Connection to the Yamcs gateway closed");
+                ctx.executor().schedule(() -> connect(), reconnectionDelay, TimeUnit.MILLISECONDS);
+            }
         }
 
         public ChannelFuture sendMessage(byte msgType, int nodeId, int linkId, byte[] data) {
@@ -368,7 +448,18 @@ public class YgwLink extends AbstractLink implements AggregatedDataLink {
             buf.writeBytes(data);
 
             return ctx.writeAndFlush(buf);
+        }
 
+        public ChannelFuture sendReplayRequestMessage(long startRn, long stopRn) {
+            var rr = org.yamcs.ygw.protobuf.Ygw.ReplayRequest.newInstance().setStartRn(startRn).setStopRn(stopRn);
+            var data = rr.toByteArray();
+
+            ByteBuf buf = Unpooled.buffer(5 + data.length);
+            buf.writeInt(data.length + 1);
+            buf.writeByte(VERSION);
+            buf.writeBytes(data);
+            log.info("Sending replay request for {} - {}", startRn, stopRn);
+            return ctx.writeAndFlush(buf);
         }
 
         @Override
@@ -381,8 +472,10 @@ public class YgwLink extends AbstractLink implements AggregatedDataLink {
                 ctx.close();
                 return;
             }
+
             // recording number
             long rn = buf.readLong();
+
             byte type = buf.readByte();
 
             try {
@@ -413,6 +506,10 @@ public class YgwLink extends AbstractLink implements AggregatedDataLink {
                 log.error("Exception processing message", e);
             }
             buf.release();
+
+            if (rn > 0 && replayEnabled) {
+                handleRnUpdate(rn);
+            }
         }
 
         private void processNodeInfo(ByteBuf buf) {
@@ -489,7 +586,7 @@ public class YgwLink extends AbstractLink implements AggregatedDataLink {
                 log.warn("Got message for unknown node {}", nodeId);
                 return;
             }
-            var pvList = paramMgr.processParameters(YgwLink.this, nodeId, pdata);
+            var pvList = YgwLink.this.processParameters(nodeId, pdata);
 
             node.processParameters(linkId, pdata.getGroup(), pdata.getSeqNum(), pvList);
         }

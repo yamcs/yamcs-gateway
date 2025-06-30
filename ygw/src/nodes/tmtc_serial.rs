@@ -146,7 +146,6 @@ impl Decoder for FrameCodec {
                         .split_to(pos + len)
                         .split_off(self.sync_marker.len())
                         .to_vec();
-                    println!("got frame {:?}", frame);
                     return Ok(Some(frame));
                 }
             } else {

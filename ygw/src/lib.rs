@@ -16,6 +16,7 @@ pub mod protobuf;
 
 pub mod record_file;
 pub mod recorder;
+pub mod replay_server;
 
 pub mod utc_converter;
 
@@ -358,5 +359,3 @@ pub fn hex8(data: &[u8]) -> String {
     hex_strings.join(" ")
 }
 
-#[cfg(test)]
-mod tests {}

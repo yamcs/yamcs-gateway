@@ -11,7 +11,8 @@ use crate::{
     Result, YgwError,
 };
 
-const VERSION: u8 = 0;
+//this is the version of the protocol for message exchanges
+pub const VERSION: u8 = 0;
 
 pub const ACKNOWLEDGE_SENT_KEY: &str = "Acknowledge_Sent_YGW";
 pub const COMMAND_COMPLETE_KEY: &str = "CommandComplete";
@@ -64,7 +65,14 @@ pub enum YgwMessage {
     ParameterUpdates(Addr, protobuf::ygw::ParameterUpdates),
 }
 
-/// An encoded message contains 4 bytes length, 1 byte version, 8 bytes recording number (rn), 1 byte data type followed by the data
+/// An encoded message contains:
+///  4 bytes length
+///  1 byte version
+///  8 bytes recording number (rn)
+///  1 byte data type
+///  4 bytes node id
+///  4 bytes type id
+///  encoded data
 pub struct EncodedMessage(Bytes);
 
 impl EncodedMessage {
