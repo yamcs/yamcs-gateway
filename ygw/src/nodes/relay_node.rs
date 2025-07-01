@@ -17,6 +17,7 @@
 use async_trait::async_trait;
 use futures::StreamExt;
 use std::collections::HashMap;
+use std::net::SocketAddr;
 use tokio::sync::mpsc;
 use tokio::{
     io::AsyncWriteExt,
@@ -35,8 +36,8 @@ use crate::{
 const MAX_FRAME_LENGTH: usize = 16 * 1024 * 1024;
 pub struct RelayNode {
     props: YgwLinkNodeProperties,
-    port: u16,
-    links: Vec<Link>
+    addr: SocketAddr,
+    links: Vec<Link>,
 }
 
 #[async_trait]
@@ -59,8 +60,8 @@ impl YgwNode for RelayNode {
         let link_status = LinkStatus::new(addr);
         link_status.send(&msg_tx).await?;
 
-        let listener = TcpListener::bind(("0.0.0.0", self.port)).await?;
-        log::info!("RelayNode listening on port {}", self.port);
+        let listener = TcpListener::bind(self.addr).await?;
+        log::info!("RelayNode listening on {}", self.addr);
 
         //let link_status = Arc::new(Mutex::new(link_status));
         let (main_tx, mut main_rx) = mpsc::channel::<ClientCommand>(100);
@@ -96,29 +97,27 @@ impl YgwNode for RelayNode {
                 }
 
                 // Main message input from Yamcs — route to client by link_id
-                Some(msg) = msg_rx.recv() => {
-                    let link_id = msg.link_id();
+                msg = msg_rx.recv() => {
+                    if let Some(msg) = msg {
+                        let link_id = msg.link_id();
 
-                    if let Some(client_tx) = client_map.get(&link_id) {
-                        if let Err(e) = client_tx.send(msg).await {
-                            log::warn!("Failed to send message to link_id {}: {}", link_id, e);
+                        if let Some(client_tx) = client_map.get(&link_id) {
+                            if let Err(e) = client_tx.send(msg).await {
+                                log::warn!("Failed to send message to link_id {}: {}", link_id, e);
+                            }
+                        } else {
+                            log::warn!("No client found for link_id {}", link_id);
                         }
                     } else {
-                        log::warn!("No client found for link_id {}", link_id);
+                        break;
                     }
                 }
             }
         }
-    }
-}
 
-impl RelayNode {
-    pub fn new(name: &str, description: &str, links:Vec<Link>, port: u16) -> Result<Self> {
-        Ok(Self {
-            props: YgwLinkNodeProperties::new(name, description),
-            port,
-            links
-        })
+        log::debug!("RelayNode exiting");
+
+        Ok(())
     }
 }
 
@@ -210,20 +209,23 @@ enum ClientCommand {
     },
 }
 
-
 pub struct RelayNodeBuilder {
-    props: YgwLinkNodeProperties,
-    port: u16,
+    name: String,
+    addr: SocketAddr,
     links: Vec<Link>,
 }
 
 impl RelayNodeBuilder {
-    pub fn new(props: YgwLinkNodeProperties, port: u16) -> Self {
+    pub fn new(name: &str) -> Self {
         Self {
-            props,
-            port,
+            name: name.to_string(),
+            addr: ([127, 0, 0, 1], 7899).into(),
             links: Vec::new(),
         }
+    }
+    pub fn set_addr(mut self, addr: SocketAddr) -> Self {
+        self.addr = addr;
+        self
     }
 
     pub fn add_link(mut self, id: u32, props: YgwLinkNodeProperties) -> Self {
@@ -233,8 +235,8 @@ impl RelayNodeBuilder {
 
     pub fn build(self) -> RelayNode {
         RelayNode {
-            props: self.props,
-            port: self.port,
+            props: YgwLinkNodeProperties::new(self.name, "relays data from external clients"),
+            addr: self.addr,
             links: self.links,
         }
     }

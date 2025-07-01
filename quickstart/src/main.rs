@@ -6,13 +6,14 @@ use mynode::MyNode;
 use ygw::{
     nodes::{
         pingnode::PingNodeBuilder,
+        relay_node::RelayNodeBuilder,
         shellcmd::{ShellCmdArg, ShellCmdNodeBuilder},
         tc_udp::TcUdpNode,
         tm_udp::TmUdpNode,
         ygw_socketcan::CanNode,
     },
     ygw_server::ServerBuilder,
-    Result,
+    Result, YgwLinkNodeProperties,
 };
 
 #[tokio::main]
@@ -78,15 +79,20 @@ async fn main() -> Result<()> {
         .await?
         .build();
 
+    let node7 = RelayNodeBuilder::new("relay")
+        .add_link(1, YgwLinkNodeProperties::new("test1", "test 1"))
+        .build();
+
     let replay_addr: SocketAddr = ([127, 0, 0, 1], 7898).into();
     let server = ServerBuilder::new()
-        .with_record_replay_conf(Some(("/tmp/ygw".into(), replay_addr)))
+       // .with_record_replay_conf(Some(("/tmp/ygw".into(), replay_addr)))
         .add_node(Box::new(node1))
         .add_node(Box::new(node2))
         .add_node(Box::new(node3))
         .add_node(Box::new(node4))
         .add_node(Box::new(node5))
         .add_node(Box::new(node6))
+        .add_node(Box::new(node7))
         .build();
 
     let handle = server.start().await?;
