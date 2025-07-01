@@ -241,6 +241,30 @@ impl YgwMessage {
                     Err(e) => Err(YgwError::DecodeError(e.to_string())),
                 }
             }
+            x if x == MessageType::ParameterData as i32 => {
+                match protobuf::ygw::ParameterData::decode(buf) {
+                    Ok(params) => Ok(YgwMessage::ParameterData(addr, params)),
+                    Err(e) => Err(YgwError::DecodeError(e.to_string())),
+                }
+            }
+            x if x == MessageType::ParameterDefinitions as i32 => {
+                match protobuf::ygw::ParameterDefinitionList::decode(buf) {
+                    Ok(pdefs) => Ok(YgwMessage::ParameterDefinitions(addr, pdefs)),
+                    Err(e) => Err(YgwError::DecodeError(e.to_string())),
+                }
+            }
+            x if x == MessageType::Event as i32 => {
+                match protobuf::ygw::Event::decode(buf) {
+                    Ok(ev) => Ok(YgwMessage::Event(addr, ev)),
+                    Err(e) => Err(YgwError::DecodeError(e.to_string())),
+                }
+            }
+            x if x == MessageType::CommandDefinitions as i32 => {
+                match protobuf::ygw::CommandDefinitionList::decode(buf) {
+                    Ok(cdefs) => Ok(YgwMessage::CommandDefinitions(addr, cdefs)),
+                    Err(e) => Err(YgwError::DecodeError(e.to_string())),
+                }
+            }
             _ => Err(YgwError::DecodeError(format!(
                 "Unexpected message type {}",
                 msg_type
@@ -249,14 +273,38 @@ impl YgwMessage {
     }
 
     pub fn node_id(&self) -> u32 {
+        self.addr().node_id
+    }
+    pub fn link_id(&self) -> u32 {
+        self.addr().link_id
+    }
+    pub fn addr(&self) -> Addr {
         match self {
-            YgwMessage::TmPacket(addr, _) => addr.node_id,
-            YgwMessage::Tc(addr, _) => addr.node_id,
-            YgwMessage::Event(addr, _) => addr.node_id,
-            YgwMessage::ParameterData(addr, _) => addr.node_id,
-            YgwMessage::ParameterUpdates(addr, _) => addr.node_id,
-            YgwMessage::TcFrame(addr, _) => addr.node_id,
+            YgwMessage::TmPacket(addr, _) => *addr,
+            YgwMessage::Tc(addr, _) => *addr,
+            YgwMessage::Event(addr, _) => *addr,
+            YgwMessage::ParameterData(addr, _) => *addr,
+            YgwMessage::ParameterUpdates(addr, _) => *addr,
+            YgwMessage::TcFrame(addr, _) => *addr,
             _ => todo!(),
+        }
+    }
+
+    pub fn set_node_id(&mut self, new_node_id: u32) {
+        match self {
+            YgwMessage::TmPacket(addr, _) => addr.node_id = new_node_id,
+            YgwMessage::Tc(addr, _) => addr.node_id = new_node_id,
+            YgwMessage::Event(addr, _) => addr.node_id = new_node_id,
+            YgwMessage::ParameterData(addr, _) => addr.node_id = new_node_id,
+            YgwMessage::ParameterUpdates(addr, _) => addr.node_id = new_node_id,
+            YgwMessage::TcFrame(addr, _) => addr.node_id = new_node_id,
+            YgwMessage::LinkStatus(addr, _) => addr.node_id = new_node_id,
+            YgwMessage::ParameterDefinitions(addr, _) => addr.node_id = new_node_id,
+            YgwMessage::CommandDefinitions(addr, _) => addr.node_id = new_node_id,
+            YgwMessage::CommandOptions(addr, _) => addr.node_id = new_node_id,
+            YgwMessage::TcAck(addr, _) => addr.node_id = new_node_id,
+            YgwMessage::LinkCommand(addr, _) => addr.node_id = new_node_id,
+            _ => todo!("set_node_id not implemented for this variant"),
         }
     }
 }

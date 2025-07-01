@@ -11,6 +11,7 @@ pub mod nodes {
     pub mod tmtc_serial;
     #[cfg(feature = "socketcan")]
     pub mod ygw_socketcan;
+    pub mod relay_node;
 }
 pub mod protobuf;
 
