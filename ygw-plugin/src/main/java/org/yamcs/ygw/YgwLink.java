@@ -168,6 +168,8 @@ public class YgwLink extends AbstractLink implements AggregatedDataLink {
                 .withDescription("Name of the stream to used for the replay TM");
         spec.addOption("ppReplayStream", OptionType.STRING)
                 .withDescription("Name of the stream to use for the replay PP");
+        spec.addOption("eventReplayStream", OptionType.STRING)
+                .withDescription("Name of the stream to use for the replay events");
 
         var tmFrameSpec = new Spec();
         AbstractTmFrameLink.addDefaultOptions(tmFrameSpec);

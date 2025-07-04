@@ -37,7 +37,7 @@ dataLinks:
     ppStream: "pp_realtime"
     tmReplayStream: "tm_dump"
     ppReplayStream: "pp_dump"
-	eventReplayStream: "events_dump"
+    eventReplayStream: "events_dump"
     packetPreprocessorClassName: org.yamcs.tctm.GenericPacketPreprocessor
     packetPreprocessorArgs:
       timestampOffset: -1
