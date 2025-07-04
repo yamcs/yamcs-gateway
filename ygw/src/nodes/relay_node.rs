@@ -144,6 +144,7 @@ async fn handle_client(
                             let mut buf = buf.freeze();
                             match YgwMessage::decode(&mut buf) {
                                 Ok(mut msg) => {
+                                    log::trace!("Received message {:?}", msg);
                                     msg.set_node_id(node_id);
 
                                     if link_id.is_none() {

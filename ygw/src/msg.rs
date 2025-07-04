@@ -286,6 +286,7 @@ impl YgwMessage {
             YgwMessage::ParameterData(addr, _) => *addr,
             YgwMessage::ParameterUpdates(addr, _) => *addr,
             YgwMessage::TcFrame(addr, _) => *addr,
+            YgwMessage::ParameterDefinitions(addr, _) => *addr,
             _ => todo!(),
         }
     }
