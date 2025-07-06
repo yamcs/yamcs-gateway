@@ -132,7 +132,9 @@ impl Server {
 
         let (encoder_tx, encoder_rx) = tokio::sync::mpsc::channel(100);
 
-        let socket = TcpListener::bind(self.addr).await?;
+        let socket = TcpListener::bind(self.addr)
+            .await
+            .map_err(|e| YgwError::IOError(format!("Cannot bind to {}", self.addr), e))?;
         let addr = socket.local_addr()?;
         let cancel_token = CancellationToken::new();
 

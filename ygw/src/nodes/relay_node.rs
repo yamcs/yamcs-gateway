@@ -60,7 +60,9 @@ impl YgwNode for RelayNode {
         let link_status = LinkStatus::new(addr);
         link_status.send(&msg_tx).await?;
 
-        let listener = TcpListener::bind(self.addr).await?;
+        let listener = TcpListener::bind(self.addr)
+            .await
+            .map_err(|e| YgwError::IOError(format!("Cannot bind to {}", self.addr), e))?;
         log::info!("RelayNode listening on {}", self.addr);
 
         //let link_status = Arc::new(Mutex::new(link_status));
@@ -135,6 +137,8 @@ async fn handle_client(
 
     let mut link_id: Option<u32> = None;
     let mut client_rx: Option<Receiver<YgwMessage>> = None;
+    let mut link_status: Option<LinkStatus> = None;
+    let mut interval = tokio::time::interval(std::time::Duration::from_secs(1));
 
     loop {
         tokio::select! {
@@ -156,9 +160,12 @@ async fn handle_client(
                                             break;
                                         }
                                         client_rx = Some(rx);
+                                        link_status = Some(LinkStatus::new(Addr::new(node_id, msg.link_id())));
                                         link_id.replace(msg.link_id());
                                     }
-
+                                    if let Some(link_status) = &mut link_status {
+                                        link_status.data_in(1, buf.len() as u64);
+                                    }
                                     if let Err(_) = tx.send(msg).await {
                                         break;
                                     }
@@ -178,16 +185,28 @@ async fn handle_client(
                         }
                     }
                 }
-                Some(msg) = async {
+                msg = async {
                     match &mut client_rx {
                         Some(rx) => rx.recv().await,
                         None => None
                     }
                 }, if client_rx.is_some() => {
-                    let buf = msg.encode(0);
-                    if let Err(e) = writer.write_all(&buf).await {
-                        log::warn!("Error sending to client {}: {:?}", peer_addr, e);
-                        break;
+                    match msg {
+                        Some(msg) => {
+                            let buf = msg.encode(0);
+                            if let Err(e) = writer.write_all(&buf).await {
+                                log::warn!("Error sending to client {}: {:?}", peer_addr, e);
+                                break;
+                            }
+                        }
+                        None => { break;}
+                    }
+                }
+                _ = interval.tick() => {
+                    if let Some(link_status) = &link_status {
+                        if let Err(_) = link_status.send(&tx).await {
+                            break;
+                        }
                     }
                 }
         }
