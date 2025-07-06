@@ -54,6 +54,8 @@ enum MessageType {
   TC_FRAME = 14;
 }
 
+// Yamcs interprets this as a Yamcs timestamp - it includes leap seconds
+// in 2025 this is UNIX time + 37 sec
 message Timestamp {
   required sint64 millis = 1;
   required uint32 picos = 2;
