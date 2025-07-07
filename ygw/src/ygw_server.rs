@@ -395,7 +395,13 @@ async fn encoder_task(
                         match msg {
                             YgwMessage::ParameterDefinitions(addr, pdefs) => {
                                 if let Some(node) = nodes.get_mut(&addr.node_id()) {
-                                    node.para_defs.definitions.extend(pdefs.definitions);
+                                    for def in pdefs.definitions {
+                                        if let Some(pos) = node.para_defs.definitions.iter().position(|x| x.relative_name == def.relative_name) {
+                                            node.para_defs.definitions[pos] = def;
+                                        } else {
+                                            node.para_defs.definitions.push(def);
+                                        }
+                                    }
                                 }
                             },
                             YgwMessage::ParameterData(addr, pvals) => {
@@ -410,7 +416,13 @@ async fn encoder_task(
                             },
                             YgwMessage::CommandDefinitions(addr, cmd_defs) => {
                                 if let Some(node) = nodes.get_mut(&addr.node_id()) {
-                                    node.cmd_defs.definitions.extend(cmd_defs.definitions);
+                                    for def in cmd_defs.definitions {
+                                        if let Some(pos) = node.cmd_defs.definitions.iter().position(|x| x.relative_name == def.relative_name) {
+                                            node.cmd_defs.definitions[pos] = def;
+                                        } else {
+                                            node.cmd_defs.definitions.push(def);
+                                        }
+                                    }
                                 }
                             },
                             YgwMessage::CommandOptions(addr, cmd_opts) => {
