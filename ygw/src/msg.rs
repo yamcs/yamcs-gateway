@@ -149,7 +149,7 @@ pub struct TmFrame {
 }
 
 impl YgwMessage {
-    pub(crate) fn encode(&self, rn: u64) -> EncodedMessage {
+    pub fn encode(&self, rn: u64) -> EncodedMessage {
         match self {
             YgwMessage::TmPacket(addr, tm) => {
                 let mut emb =
@@ -199,7 +199,7 @@ impl YgwMessage {
     /// - 4 bytes - link id = 0 if it is for the node itself (and not a sub-link)
     /// - n bytes - sub_data
     ///
-    pub(crate) fn decode(buf: &mut Bytes) -> Result<Self> {
+    pub fn decode(buf: &mut Bytes) -> Result<Self> {
         if buf.len() < 10 {
             return Err(YgwError::DecodeError(format!(
                 "Message too short: {} bytes(expected at least 10 bytes)",
