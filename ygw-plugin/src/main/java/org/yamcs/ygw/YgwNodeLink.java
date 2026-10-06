@@ -395,7 +395,9 @@ public class YgwNodeLink extends AbstractTcTmParamLink implements AggregatedData
         if (binary != null && !pc.disablePostprocessing()) {
             binary = cmdPostProcessor.process(pc);
             if (binary == null) {
+                // the postprocessor has already failed the command in the command history
                 log.warn("command postprocessor did not process the command");
+                return true;
             }
             pc.setBinary(binary);
         }
